@@ -1,0 +1,573 @@
+/* Reading surfaces share a boundary, not a container inside another container. */
+.workbench.closed {
+  width: 0 !important;
+  border-left: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.workspace-shell {
+  --motion: 210ms;
+  --ease: cubic-bezier(0.22, 0.7, 0.25, 1);
+  --actual-bench: min(var(--bench-width), calc(100vw - 120px));
+  height: 100dvh;
+}
+.appbar {
+  width: 100%;
+  transition: width var(--motion) var(--ease);
+  overflow: hidden;
+  gap: 14px;
+  white-space: nowrap;
+}
+/* Grouping is communicated by spacing, not by a divider stroke. */
+.appbar .bar-divider {
+  display: none;
+}
+.appbar.with-bench {
+  width: calc(100% - var(--actual-bench));
+}
+.appbar .board-title {
+  min-width: 40px;
+  flex: 1;
+  width: auto;
+}
+.appbar .bar-right {
+  gap: 4px;
+}
+.appbar .brand {
+  flex-shrink: 0;
+}
+.appbar .save-state {
+  max-width: 130px;
+  overflow: hidden;
+}
+.workbench {
+  margin-top: -44px;
+  height: 100dvh;
+  width: var(--actual-bench) !important;
+  max-width: none;
+  background: #fff;
+  transition: width var(--motion) var(--ease);
+  z-index: 21;
+  overflow: visible;
+}
+.bench-rail {
+  height: 44px;
+  flex: 0 0 44px;
+}
+.bench-columns {
+  display: grid;
+  gap: 0;
+  padding: 0;
+  min-height: 0;
+  overflow: hidden;
+  align-items: stretch;
+}
+.bench-column {
+  display: block;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #d5d3cc transparent;
+  scroll-padding-top: 44px;
+  padding: 0 0 100px;
+  position: relative;
+}
+.column-divider {
+  position: relative;
+  z-index: 30;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+.column-divider::after {
+  content: '';
+  position: absolute;
+  inset: 0 -5px;
+}
+.column-divider:hover,
+.column-divider:focus-visible,
+.resizing .column-divider {
+  background: #d9d7d0;
+}
+.resizing .appbar,
+.resizing .workbench {
+  transition: none;
+}
+.resizing {
+  user-select: none;
+  cursor: col-resize;
+}
+.resizing .item-body {
+  pointer-events: none;
+}
+.bench-item {
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  overflow: visible;
+  position: relative;
+  scroll-margin-top: 0;
+}
+.bench-item + .bench-item {
+  margin-top: 14px;
+}
+.bench-item:focus-within {
+  z-index: 2;
+}
+.item-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: #fff;
+  min-height: 40px;
+  padding: 5px 10px 5px 9px;
+  gap: 5px;
+}
+.item-title {
+  font-size: 14px;
+  font-weight: 400;
+  color: #66655e;
+  gap: 7px;
+}
+.item-title svg,
+.text-icon {
+  color: #85837b;
+}
+.item-actions {
+  opacity: 0.38;
+  transition: opacity 120ms ease;
+}
+.item-header:hover .item-actions,
+.item-header:focus-within .item-actions,
+.bench-item.focused .item-actions {
+  opacity: 1;
+}
+.item-actions select {
+  max-width: 76px;
+}
+.fold-button {
+  width: 22px;
+  height: 27px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  color: #7a786f;
+  flex-shrink: 0;
+}
+.fold-button svg {
+  transform: rotate(90deg);
+  transition: transform 160ms var(--ease);
+}
+.fold-button.folded svg {
+  transform: rotate(0);
+}
+.bench-writing {
+  padding: 30px clamp(20px, 2.3vw, 38px) 42px;
+  min-height: 190px;
+  background: #fff;
+}
+.bench-writing .live-editor {
+  min-height: 120px;
+}
+.bench-writing .markdown h1 {
+  font-size: 28px;
+}
+.bench-writing .markdown h2 {
+  font-size: 24px;
+}
+.bench-writing .editable {
+  min-height: 120px;
+}
+.bench-image {
+  padding: 24px;
+}
+.bench-item.focused > .item-header {
+  box-shadow: inset 2px 0 #8599e6;
+}
+.item-body {
+  background: #fff;
+}
+.resize-handle {
+  z-index: 40;
+}
+.resize-handle:hover,
+.resize-handle:focus-visible,
+.resizing .resize-handle {
+  background: #4d6fff18;
+}
+/* This reserved strip is present at rest: hover never covers or displaces the title. */
+.board-card {
+  padding: 38px 22px 22px;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+  overflow: hidden;
+}
+.board-card:has(img) {
+  padding: 38px 10px 10px;
+}
+.board-card .editable {
+  min-height: 70px;
+  cursor: default;
+}
+.board-card.editing {
+  user-select: text;
+  overflow: auto;
+  overscroll-behavior: contain;
+  /* No scrollbar gutter: entering edit mode must not reflow the text. */
+  scrollbar-width: none;
+  touch-action: auto;
+}
+.board-card.editing .editable {
+  cursor: text;
+}
+.board-card.selected {
+  outline: 1.5px solid #8399ea;
+  outline-offset: 1px;
+}
+.board-card .open-card {
+  top: 7px;
+  left: 10px;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  border-radius: 4px;
+  color: #6d6c65;
+}
+.board-card .open-card:hover,
+.board-card .open-card:focus-visible {
+  background: #00000008;
+  color: #34342f;
+}
+.board-card .markdown h2 {
+  font-size: 20px;
+}
+.board-card .editable:focus-visible {
+  outline-offset: 4px;
+}
+.connection-target:hover {
+  outline: 2px solid #a7b5eb;
+  outline-offset: 3px;
+}
+.connection-port {
+  position: absolute;
+  right: 5px;
+  top: calc(50% - 10px);
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  border: 1px solid #9aaadd;
+  border-radius: 50%;
+  cursor: crosshair;
+  z-index: 4;
+}
+.connection {
+  stroke-linecap: round;
+  animation: connection-appear 180ms ease-out;
+}
+.edges .connection-preview {
+  stroke: #7f95df;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+  fill: none;
+  pointer-events: none;
+}
+@keyframes connection-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* Indent guides follow wrapped list items, including nested lists. */
+.markdown li {
+  position: relative;
+}
+.markdown li::after {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: 1.55em;
+  bottom: 0;
+  border-left: 1px solid #d9d7d080;
+  pointer-events: none;
+}
+.markdown li > ul,
+.markdown li > ol {
+  margin-top: 5px;
+  margin-bottom: 5px;
+}
+.markdown ul,
+.markdown ol {
+  padding-left: 22px;
+}
+.markdown li::marker {
+  color: #77766f;
+}
+.live-editor {
+  font: inherit;
+  min-height: 70px;
+  cursor: text;
+  user-select: text;
+}
+.live-editor .cm-content {
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere;
+}
+/* Editor line metrics mirror the rendered Markdown preview exactly so
+   entering and leaving edit mode never moves the text. Headings share the
+   preview's size, weight, line-height, letter-spacing, and margins. */
+.live-editor .cm-line.md-h1 {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.6px;
+  margin: 0.67em 0;
+}
+.live-editor .cm-line.md-h2 {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.32;
+  letter-spacing: -0.5px;
+  margin: 0 0 17px;
+}
+.live-editor .cm-line.md-h3 {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 1em 0;
+}
+.live-editor .cm-line.md-h4,
+.live-editor .cm-line.md-h5,
+.live-editor .cm-line.md-h6 {
+  font-weight: 700;
+}
+.live-editor .cm-line.md-para-end {
+  margin-bottom: 14px;
+}
+.live-editor .cm-line.md-li-start {
+  margin-top: 5px;
+}
+.live-editor .cm-line.md-li-end {
+  margin-bottom: 5px;
+}
+.live-editor .cm-line.md-quote-end {
+  margin-bottom: 18px;
+}
+.live-editor .cm-line.md-first:not(.md-li-start) {
+  margin-top: 0 !important;
+}
+.live-editor .cm-line.md-last:not(.md-li-end) {
+  margin-bottom: 0 !important;
+}
+.board-card .cm-line.md-h1 {
+  font-size: 25px;
+}
+.board-card .cm-line.md-h2 {
+  font-size: 20px;
+}
+.board-card .cm-line.md-h3 {
+  font-size: 18px;
+}
+.md-strong {
+  font-weight: 600;
+}
+.md-em {
+  font-style: italic;
+}
+.md-strike {
+  text-decoration: line-through;
+}
+.md-link {
+  color: #4d6fff;
+  text-decoration: underline;
+  text-decoration-color: #4d6fff50;
+  text-underline-offset: 3px;
+}
+.md-inline-code,
+.md-code-line {
+  background: #00000005;
+}
+.md-bullet {
+  display: inline-block;
+  min-width: 0.55em;
+  text-align: center;
+  color: #77766f;
+}
+.cm-line.md-list-line {
+  /* 21px per level like the preview's list padding, minus the bullet
+     widget width, so text lands where the rendered list puts it. */
+  padding-left: calc(21px * var(--list-depth, 1) - 7px);
+  background-image: linear-gradient(#d9d7d070, #d9d7d070);
+  background-size: 1px calc(100% - 1.4em);
+  background-position: calc((var(--list-depth, 1) - 1) * 1.2em + 0.2em) bottom;
+  background-repeat: no-repeat;
+}
+.cm-line.md-quote-line {
+  border-left: 2px solid #a6924d;
+  padding-left: 14px !important;
+}
+.live-editor .cm-cursor {
+  border-left: 1.5px solid #333;
+}
+.live-editor .cm-focused {
+  outline: 0;
+}
+.cm-line {
+  transition: none !important;
+}
+.pdf-flow {
+  padding: 18px 14px 0;
+  background: #f5f4f0;
+  overflow: visible;
+  position: relative;
+}
+.pdf-page {
+  margin: 0 auto;
+  max-width: none;
+}
+.pdf-raster {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+.pdf-raster canvas {
+  position: absolute;
+  inset: 0;
+}
+.pdf-page .textLayer {
+  overflow: hidden;
+}
+.pdf-flow .page-number {
+  padding: 9px 0 15px;
+}
+.pdf-flow + .annotation-tray {
+  background: #fff;
+}
+.selection-popover {
+  position: fixed;
+  z-index: 120;
+  max-width: 310px;
+  width: calc(100vw - 24px);
+  background: #fff;
+  border: 1px solid #dedbd1;
+  border-radius: 7px;
+  box-shadow: 0 6px 25px #0002;
+  padding: 12px;
+  font-size: 13px;
+}
+.selection-popover p {
+  margin: 0 0 10px;
+  line-height: 1.5;
+  max-height: 58px;
+  overflow: hidden;
+}
+.selection-popover p[draggable='true'] {
+  cursor: grab;
+  background: #fff5ca;
+}
+.selection-popover > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.selection-popover button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px;
+  border-radius: 4px;
+}
+.selection-popover .muted {
+  font-size: 11px;
+}
+.annotation-tray {
+  padding: 20px 24px;
+}
+@media (max-width: 1000px) {
+  .appbar .save-state {
+    display: none;
+  }
+  .bench-writing {
+    padding: 26px 20px 36px;
+  }
+  .item-title {
+    font-size: 13px;
+  }
+  .item-actions .icon-button {
+    width: 24px;
+  }
+}
+@media (max-width: 700px) {
+  .appbar.with-bench {
+    width: 100%;
+  }
+  .workbench {
+    position: absolute;
+    top: 44px;
+    bottom: 0;
+    right: 0;
+    margin-top: 0;
+    height: calc(100dvh - 44px);
+    width: 94vw !important;
+    max-width: 94vw;
+    box-shadow: -6px 0 20px #00000010;
+  }
+  .bench-rail {
+    display: none;
+  }
+  .two .bench-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr) !important;
+  }
+  .two .bench-column {
+    width: auto;
+  }
+  .bench-writing {
+    padding: 18px 12px;
+  }
+  .item-header {
+    flex-wrap: wrap;
+  }
+  .item-title {
+    flex-basis: calc(100% - 32px);
+  }
+  .item-actions {
+    margin-left: auto;
+  }
+  .workbench .resize-handle {
+    display: none;
+  }
+  .column-divider {
+    pointer-events: none;
+  }
+  .board-card .open-card {
+    opacity: 0.65;
+  }
+  .bench-writing .markdown {
+    font-size: 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-shell {
+    --motion: 0ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
