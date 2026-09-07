@@ -106,9 +106,12 @@ button svg {
   align-items: center;
   padding: 0 18px;
   gap: 18px;
-  position: relative;
-  z-index: 20;
-  background: var(--canvas);
+  /* Overlays the workspace so cards slide underneath it. */
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
   font-size: 14px;
 }
 .brand {
@@ -165,7 +168,7 @@ button svg {
 }
 main {
   display: flex;
-  height: calc(100dvh - 44px);
+  height: 100dvh;
 }
 .board {
   flex: 1;
@@ -945,7 +948,7 @@ blockquote {
 }
 .load-cover {
   position: fixed;
-  inset: 44px 0 0;
+  inset: 0;
   display: grid;
   place-items: center;
   background: #f7f6f3;

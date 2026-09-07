@@ -139,7 +139,6 @@
       }
     }}
   ></div>
-  <div class="bench-rail" aria-hidden="true"></div>
   <div
     class="bench-columns"
     bind:this={container}

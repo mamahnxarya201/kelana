@@ -17,6 +17,12 @@
   overflow: hidden;
   gap: 14px;
   white-space: nowrap;
+  /* Floats over the workspace: no fill of its own. */
+  background: transparent;
+  pointer-events: none;
+}
+.appbar > * {
+  pointer-events: auto;
 }
 /* Grouping is communicated by spacing, not by a divider stroke. */
 .appbar .bar-divider {
@@ -41,7 +47,7 @@
   overflow: hidden;
 }
 .workbench {
-  margin-top: -44px;
+  margin-top: 0;
   height: 100dvh;
   width: var(--actual-bench) !important;
   max-width: none;
@@ -49,10 +55,6 @@
   transition: width var(--motion) var(--ease);
   z-index: 21;
   overflow: visible;
-}
-.bench-rail {
-  height: 44px;
-  flex: 0 0 44px;
 }
 .bench-columns {
   display: grid;
@@ -119,7 +121,7 @@
 }
 .item-header {
   position: sticky;
-  top: 0;
+  top: 44px;
   z-index: 5;
   background: #fff;
   min-height: 40px;
@@ -524,9 +526,6 @@
     width: 94vw !important;
     max-width: 94vw;
     box-shadow: -6px 0 20px #00000010;
-  }
-  .bench-rail {
-    display: none;
   }
   .two .bench-columns {
     display: grid;
