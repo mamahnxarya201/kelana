@@ -1,18 +1,20 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { EditorState, Transaction } from '@codemirror/state';
+  import { Compartment, EditorState, Transaction } from '@codemirror/state';
   import { EditorView, keymap, drawSelection } from '@codemirror/view';
   import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
   import { markdown, markdownKeymap } from '@codemirror/lang-markdown';
   import { liveMarkdown } from './lib/live-markdown';
   let {
     body,
+    editing = true,
     caret = 0,
     oninput,
     onfinish,
     oncaret = () => {},
   }: {
     body: string;
+    editing?: boolean;
     caret?: number;
     oninput: (body: string) => void;
     onfinish: () => void;
@@ -21,6 +23,21 @@
   let host: HTMLDivElement;
   let editor: EditorView | undefined;
   let fromOutside = false;
+  const readOnly = new Compartment();
+  const editable = new Compartment();
+
+  export function focusAt(position: number) {
+    if (!editor) return;
+    const anchor = Math.max(0, Math.min(position, editor.state.doc.length));
+    editor.dispatch({ selection: { anchor }, scrollIntoView: true });
+    editor.focus();
+  }
+  export function focusAtPoint(x: number, y: number) {
+    if (!editor) return;
+    const position = editor.posAtCoords({ x, y });
+    focusAt(position ?? Math.min(caret, editor.state.doc.length));
+  }
+
   onMount(() => {
     editor = new EditorView({
       parent: host,
@@ -33,11 +50,14 @@
           drawSelection(),
           EditorView.lineWrapping,
           liveMarkdown,
+          readOnly.of(EditorState.readOnly.of(!editing)),
+          editable.of(EditorView.editable.of(editing)),
           EditorView.contentAttributes.of({ 'aria-label': 'Edit Markdown', spellcheck: 'true' }),
           keymap.of([
             {
               key: 'Escape',
               run: () => {
+                if (!editing) return false;
                 onfinish();
                 return true;
               },
@@ -52,6 +72,7 @@
           }),
           EditorView.domEventHandlers({
             blur: () => {
+              if (!editing) return;
               queueMicrotask(() => {
                 if (editor && !editor.hasFocus) onfinish();
               });
@@ -74,11 +95,21 @@
         ],
       }),
     });
-    editor.focus();
+    if (editing) requestAnimationFrame(() => focusAt(caret));
     return () => {
       editor?.destroy();
       editor = undefined;
     };
+  });
+  $effect(() => {
+    const enabled = editing;
+    if (!editor) return;
+    editor.dispatch({
+      effects: [
+        readOnly.reconfigure(EditorState.readOnly.of(!enabled)),
+        editable.reconfigure(EditorView.editable.of(enabled)),
+      ],
+    });
   });
   $effect(() => {
     const next = body;
@@ -95,4 +126,4 @@
   });
 </script>
 
-<div class="live-editor" bind:this={host}></div>
+<div class="live-editor" class:editing bind:this={host}></div>

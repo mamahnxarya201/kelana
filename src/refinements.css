@@ -33,7 +33,8 @@
 }
 .appbar .board-title {
   min-width: 40px;
-  flex: 1;
+  max-width: min(360px, calc(100vw - 330px));
+  flex: 0 1 auto;
   width: auto;
 }
 .appbar .bar-right {
@@ -73,7 +74,7 @@
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: #d5d3cc transparent;
-  scroll-padding-top: 44px;
+  scroll-padding-top: 0;
   padding: 0 0 100px;
   position: relative;
 }
@@ -121,7 +122,7 @@
 }
 .item-header {
   position: sticky;
-  top: 44px;
+  top: 0;
   z-index: 5;
   background: #fff;
   min-height: 40px;
@@ -216,13 +217,19 @@
   min-height: 70px;
   cursor: default;
 }
+.board-card.selected,
 .board-card.editing {
-  user-select: text;
   overflow: auto;
   overscroll-behavior: contain;
-  /* No scrollbar gutter: entering edit mode must not reflow the text. */
   scrollbar-width: none;
+}
+.board-card.editing {
+  user-select: text;
   touch-action: auto;
+}
+.board-card.selected::-webkit-scrollbar,
+.board-card.editing::-webkit-scrollbar {
+  display: none;
 }
 .board-card.editing .editable {
   cursor: text;
@@ -231,6 +238,44 @@
   outline: 1.5px solid #8399ea;
   outline-offset: 1px;
 }
+.card-resize-zone {
+  position: absolute;
+  z-index: 6;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  opacity: 0;
+  touch-action: none;
+}
+.card-resize-zone.n,
+.card-resize-zone.s {
+  left: 8px;
+  right: 8px;
+  height: 8px;
+  cursor: ns-resize;
+}
+.card-resize-zone.n { top: 0; }
+.card-resize-zone.s { bottom: 0; }
+.card-resize-zone.e,
+.card-resize-zone.w {
+  top: 8px;
+  bottom: 8px;
+  width: 8px;
+  cursor: ew-resize;
+}
+.card-resize-zone.e { right: 0; }
+.card-resize-zone.w { left: 0; }
+.card-resize-zone.ne,
+.card-resize-zone.se,
+.card-resize-zone.sw,
+.card-resize-zone.nw {
+  width: 12px;
+  height: 12px;
+}
+.card-resize-zone.ne { top: 0; right: 0; cursor: nesw-resize; }
+.card-resize-zone.se { right: 0; bottom: 0; cursor: nwse-resize; }
+.card-resize-zone.sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.card-resize-zone.nw { top: 0; left: 0; cursor: nwse-resize; }
 .board-card .open-card {
   top: 7px;
   left: 10px;
@@ -356,6 +401,12 @@
 }
 .live-editor .cm-line.md-para-end {
   margin-bottom: 14px;
+}
+.live-editor .cm-line.md-blank {
+  height: 0;
+  min-height: 0;
+  line-height: 0;
+  overflow: hidden;
 }
 .live-editor .cm-line.md-li-start {
   margin-top: 5px;

@@ -22,6 +22,8 @@
     Keyboard,
     Upload,
     Highlighter,
+    Mouse,
+    Laptop,
   } from 'lucide-svelte';
   import {
     seed,
@@ -39,6 +41,7 @@
     type Change,
     type Anchor,
     type Point,
+    type Group,
   } from './lib/model';
   import { loadDoc, saveDoc, saveAsset, loadPdfText, savePdfText } from './lib/storage';
   import { acquirePdf, releasePdf } from './lib/pdf';
@@ -52,6 +55,15 @@
   let saveStatus = $state('Opening…');
   let notice = $state('');
   let selected = $state('');
+  let selectedIds = $state<string[]>([]);
+  let selectedGroup = $state('');
+  let titleEditing = $state(false);
+  let groupEditing = $state('');
+  let groupEditBefore = '';
+  let boardTitleInput: HTMLInputElement;
+  let marquee = $state<{ left: number; top: number; width: number; height: number } | null>(null);
+  let selectionMenu = $state<{ x: number; y: number } | null>(null);
+  let groupMenu = $state<{ id: string; x: number; y: number } | null>(null);
   let focused = $state('');
   let editingBoard = $state('');
   let resizing = $state(false);
@@ -80,6 +92,8 @@
   let writing = Promise.resolve();
   let savingRevision = 0;
   let loadFailed = $state(false);
+  const colors = ['white', 'yellow', 'blue', 'green', 'pink', 'purple'];
+  const navigationMode = $derived(doc.navigationMode ?? 'touchpad');
   const grid = $derived(new SpatialGrid(doc.placements));
   const visible = $derived(
     grid.query(
@@ -185,6 +199,8 @@
   async function open(id: string) {
     focused = id;
     selected = '';
+    selectedIds = [];
+    selectedGroup = '';
     editingBoard = '';
     commit(paneChanges(openPane($state.snapshot(doc), id)));
     await tick();
@@ -241,7 +257,7 @@
         c.collection === 'placements' ? { ...c, id: (c.after as Placement).id } : c,
       ) as Change[],
     );
-    selected = id;
+    selectOnly(id);
     editingBoard = id;
     tool = 'select';
   }
@@ -358,6 +374,7 @@
     commit(changes);
     worker?.postMessage({ type: 'remove', id });
     selected = '';
+    selectedIds = selectedIds.filter((selectedId) => selectedId !== id);
     notify('Deleted from the workspace. Undo to restore.');
   }
   function reorder(id: string, front: boolean) {
@@ -451,9 +468,281 @@
       y: (event.clientY - r.top - doc.camera.y) / doc.camera.zoom,
     };
   }
+  function clearBoardInteraction() {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    titleEditing = false;
+    groupEditing = '';
+    selected = '';
+    selectedIds = [];
+    selectedGroup = '';
+    selectionMenu = null;
+    groupMenu = null;
+  }
+  async function editBoardTitle() {
+    titleEditing = true;
+    await tick();
+    boardTitleInput.focus();
+    boardTitleInput.setSelectionRange(doc.title.length, doc.title.length);
+  }
+  async function editGroupLabel(group: Group, input: HTMLInputElement) {
+    selectGroup(group.id);
+    groupEditBefore = group.label;
+    groupEditing = group.id;
+    await tick();
+    input.focus();
+    input.setSelectionRange(group.label.length, group.label.length);
+  }
+  function finishGroupLabel(group: Group, input: HTMLInputElement) {
+    if (groupEditing !== group.id) return;
+    const label = input.value.trim() || 'Untitled group';
+    group.label = label;
+    input.value = label;
+    groupEditing = '';
+    persist();
+  }
+  function cancelGroupLabel(group: Group, input: HTMLInputElement) {
+    group.label = groupEditBefore;
+    input.value = groupEditBefore;
+    groupEditing = '';
+    input.blur();
+  }
+  function selectOnly(id: string) {
+    selected = id;
+    selectedIds = [id];
+    selectedGroup = '';
+    selectionMenu = null;
+    groupMenu = null;
+  }
+  function selectGroup(id: string) {
+    selected = '';
+    selectedIds = [];
+    selectedGroup = id;
+    focused = '';
+    selectionMenu = null;
+    groupMenu = null;
+  }
+  function groupBounds(group: Group) {
+    if (
+      group.x !== undefined &&
+      group.y !== undefined &&
+      group.width !== undefined &&
+      group.height !== undefined
+    )
+      return { x: group.x, y: group.y, width: group.width, height: group.height };
+    const members = doc.placements.filter((placement) => group.entityIds.includes(placement.entityId));
+    if (!members.length) return null;
+    const padding = 24;
+    const minX = Math.min(...members.map((member) => member.x)) - padding;
+    const minY = Math.min(...members.map((member) => member.y)) - padding;
+    const maxX = Math.max(...members.map((member) => member.x + member.width)) + padding;
+    const maxY = Math.max(...members.map((member) => member.y + member.height)) + padding;
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  }
+  function createGroup() {
+    if (selectedIds.length < 2) return;
+    const before = $state.snapshot(doc.groups ?? []);
+    const members = doc.placements.filter((placement) => selectedIds.includes(placement.entityId));
+    const padding = 24;
+    const x = Math.min(...members.map((member) => member.x)) - padding;
+    const y = Math.min(...members.map((member) => member.y)) - padding;
+    const group: Group = {
+      id: uid('group'),
+      label: 'New group',
+      color: colors[1 + Math.floor(Math.random() * (colors.length - 1))],
+      entityIds: [...selectedIds],
+      x,
+      y,
+      width: Math.max(...members.map((member) => member.x + member.width)) + padding - x,
+      height: Math.max(...members.map((member) => member.y + member.height)) + padding - y,
+    };
+    commit([{ collection: 'document', id: 'groups', before, after: [...before, group] }]);
+    selectionMenu = null;
+    selectGroup(group.id);
+    notify('Group created. Edit its label inline.');
+  }
+  function updateGroup(id: string, value: Partial<Group>) {
+    const before = $state.snapshot(doc.groups ?? []);
+    const after = before.map((group) => (group.id === id ? { ...group, ...value } : group));
+    commit([{ collection: 'document', id: 'groups', before, after }]);
+    groupMenu = null;
+  }
+  function deleteGroup(id: string) {
+    const before = $state.snapshot(doc.groups ?? []);
+    const after = before.filter((group) => group.id !== id);
+    commit([{ collection: 'document', id: 'groups', before, after }]);
+    selectedGroup = '';
+    groupMenu = null;
+    notify('Group removed. Its cards are unchanged.');
+  }
+  function resizeGroup(
+    event: PointerEvent,
+    group: Group,
+    direction: 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw',
+  ) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    selectGroup(group.id);
+    const handle = event.currentTarget as HTMLElement;
+    const box = handle.closest<HTMLElement>('.group-box');
+    const bounds = groupBounds(group);
+    if (!box || !bounds) return;
+    const start = { x: event.clientX, y: event.clientY };
+    let next = { ...bounds };
+    handle.setPointerCapture(event.pointerId);
+    const movement = (moveEvent: PointerEvent) => {
+      const dx = (moveEvent.clientX - start.x) / doc.camera.zoom;
+      const dy = (moveEvent.clientY - start.y) / doc.camera.zoom;
+      next = { ...bounds };
+      if (direction.includes('e')) next.width = Math.max(120, bounds.width + dx);
+      if (direction.includes('s')) next.height = Math.max(80, bounds.height + dy);
+      if (direction.includes('w')) {
+        next.width = Math.max(120, bounds.width - dx);
+        next.x = bounds.x + bounds.width - next.width;
+      }
+      if (direction.includes('n')) {
+        next.height = Math.max(80, bounds.height - dy);
+        next.y = bounds.y + bounds.height - next.height;
+      }
+      box.style.transform = `translate(${next.x}px,${next.y}px)`;
+      box.style.width = `${next.width}px`;
+      box.style.height = `${next.height}px`;
+    };
+    const finish = () => {
+      handle.removeEventListener('pointermove', movement);
+      handle.removeEventListener('pointerup', finish);
+      handle.removeEventListener('pointercancel', finish);
+      if (
+        next.x !== bounds.x ||
+        next.y !== bounds.y ||
+        next.width !== bounds.width ||
+        next.height !== bounds.height
+      )
+        updateGroup(group.id, next);
+    };
+    handle.addEventListener('pointermove', movement);
+    handle.addEventListener('pointerup', finish);
+    handle.addEventListener('pointercancel', finish);
+  }
+  function resizeCard(
+    event: PointerEvent,
+    placement: Placement,
+    direction: 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw',
+  ) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget as HTMLElement;
+    const card = handle.closest<HTMLElement>('.board-card');
+    if (!card) return;
+    const start = { x: event.clientX, y: event.clientY };
+    const before = $state.snapshot(placement);
+    let next = { ...before };
+    handle.setPointerCapture(event.pointerId);
+    const movement = (moveEvent: PointerEvent) => {
+      const dx = (moveEvent.clientX - start.x) / doc.camera.zoom;
+      const dy = (moveEvent.clientY - start.y) / doc.camera.zoom;
+      next = { ...before };
+      if (direction.includes('e')) next.width = Math.max(120, before.width + dx);
+      if (direction.includes('s')) next.height = Math.max(80, before.height + dy);
+      if (direction.includes('w')) {
+        next.width = Math.max(120, before.width - dx);
+        next.x = before.x + before.width - next.width;
+      }
+      if (direction.includes('n')) {
+        next.height = Math.max(80, before.height - dy);
+        next.y = before.y + before.height - next.height;
+      }
+      card.style.transform = `translate(${next.x}px,${next.y}px)`;
+      card.style.width = `${next.width}px`;
+      card.style.height = `${next.height}px`;
+      refreshEdges(placement.entityId, next);
+    };
+    const finish = () => {
+      handle.removeEventListener('pointermove', movement);
+      handle.removeEventListener('pointerup', finish);
+      handle.removeEventListener('pointercancel', finish);
+      if (
+        next.x !== before.x ||
+        next.y !== before.y ||
+        next.width !== before.width ||
+        next.height !== before.height
+      )
+        commit([{ collection: 'placements', id: placement.id, before, after: next }]);
+    };
+    handle.addEventListener('pointermove', movement);
+    handle.addEventListener('pointerup', finish);
+    handle.addEventListener('pointercancel', finish);
+  }
+  function marqueeSelect(event: PointerEvent) {
+    if (event.button !== 0 || tool !== 'select' || space) return;
+    event.preventDefault();
+    clearBoardInteraction();
+    const node = board;
+    const rect = board.getBoundingClientRect();
+    const startScreen = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    const startWorld = point(event);
+    let moved = false;
+    node.setPointerCapture(event.pointerId);
+    const movement = (moveEvent: PointerEvent) => {
+      const currentScreen = {
+        x: moveEvent.clientX - rect.left,
+        y: moveEvent.clientY - rect.top,
+      };
+      if (Math.hypot(currentScreen.x - startScreen.x, currentScreen.y - startScreen.y) > 3)
+        moved = true;
+      marquee = {
+        left: Math.min(startScreen.x, currentScreen.x),
+        top: Math.min(startScreen.y, currentScreen.y),
+        width: Math.abs(currentScreen.x - startScreen.x),
+        height: Math.abs(currentScreen.y - startScreen.y),
+      };
+      const currentWorld = point(moveEvent);
+      const left = Math.min(startWorld.x, currentWorld.x);
+      const top = Math.min(startWorld.y, currentWorld.y);
+      const right = Math.max(startWorld.x, currentWorld.x);
+      const bottom = Math.max(startWorld.y, currentWorld.y);
+      selectedIds = doc.placements
+        .filter(
+          (placement) =>
+            placement.x < right &&
+            placement.x + placement.width > left &&
+            placement.y < bottom &&
+            placement.y + placement.height > top,
+        )
+        .map((placement) => placement.entityId);
+      selected = selectedIds.length === 1 ? selectedIds[0] : '';
+      focused = '';
+    };
+    const finish = () => {
+      node.removeEventListener('pointermove', movement);
+      node.removeEventListener('pointerup', finish);
+      node.removeEventListener('pointercancel', finish);
+      marquee = null;
+      if (!moved) {
+        selected = '';
+        selectedIds = [];
+      }
+    };
+    node.addEventListener('pointermove', movement);
+    node.addEventListener('pointerup', finish);
+    node.addEventListener('pointercancel', finish);
+  }
+  function boardPointerDown(event: PointerEvent) {
+    if (event.button === 1) {
+      pan(event);
+      return;
+    }
+    if ((event.target as HTMLElement).closest('.board-card,.toolbar,.zoom-controls,.navigation-controls,.group-label,.floating-menu'))
+      return;
+    if (space || tool === 'hand') {
+      clearBoardInteraction();
+      pan(event);
+    } else marqueeSelect(event);
+  }
   function dragCard(event: PointerEvent, p: Placement) {
     if (
-      (event.target as HTMLElement).closest('button,a,textarea,.live-editor') ||
+      (event.target as HTMLElement).closest('button,a,textarea') ||
       editingBoard === p.entityId ||
       event.button !== 0
     )
@@ -469,7 +758,7 @@
       pan(event);
       return;
     }
-    selected = p.entityId;
+    selectOnly(p.entityId);
     focused = '';
     const node = event.currentTarget as HTMLElement;
     const start = { x: event.clientX, y: event.clientY };
@@ -510,8 +799,10 @@
     node.addEventListener('pointercancel', cancel);
   }
   function pan(event: PointerEvent) {
-    if (event.button !== 0 && event.button !== 1) return;
-    if ((event.target as HTMLElement).closest('.board-card') && !space && tool !== 'hand') return;
+    const middleMouse = event.button === 1;
+    const explicitPan = event.button === 0 && (space || tool === 'hand');
+    if (!middleMouse && !explicitPan) return;
+    if ((event.target as HTMLElement).closest('.board-card') && !middleMouse && !space && tool !== 'hand') return;
     event.preventDefault();
     const node = board;
     const start = { x: event.clientX, y: event.clientY };
@@ -531,6 +822,8 @@
     node.addEventListener('pointerup', finish);
     node.addEventListener('pointercancel', finish);
     selected = '';
+    selectedIds = [];
+    selectedGroup = '';
   }
   function zoom(value: number, cx = boardWidth / 2, cy = boardHeight / 2) {
     const z = Math.max(0.15, Math.min(2.5, value));
@@ -543,17 +836,26 @@
     persist();
   }
   function wheel(e: WheelEvent) {
-    if ((e.target as HTMLElement).closest('.board-card.editing') && !e.ctrlKey && !e.metaKey)
+    const card = (e.target as HTMLElement).closest<HTMLElement>('.board-card');
+    if (card?.dataset.entity && selectedIds.includes(card.dataset.entity) && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      card.scrollTop += e.deltaY;
+      card.scrollLeft += e.deltaX;
       return;
+    }
     e.preventDefault();
-    if (e.ctrlKey || e.metaKey) {
-      const r = board.getBoundingClientRect();
-      zoom(doc.camera.zoom * Math.exp(-e.deltaY * 0.008), e.clientX - r.left, e.clientY - r.top);
+    const r = board.getBoundingClientRect();
+    if (navigationMode === 'mouse' || e.ctrlKey || e.metaKey) {
+      zoom(doc.camera.zoom * Math.exp(-e.deltaY * 0.002), e.clientX - r.left, e.clientY - r.top);
     } else {
       doc.camera.x -= e.deltaX;
       doc.camera.y -= e.deltaY;
       persist();
     }
+  }
+  function setNavigationMode(mode: 'mouse' | 'touchpad') {
+    doc.navigationMode = mode;
+    persist();
   }
   function fit() {
     if (!doc.placements.length) {
@@ -668,7 +970,7 @@
     worker?.postMessage({ type: 'query', query, request: ++request });
   }
   function key(e: KeyboardEvent) {
-    if (!loaded) return;
+    if (!loaded || e.defaultPrevented) return;
     const input = (e.target as HTMLElement).closest('input,textarea,[contenteditable="true"]');
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
       e.preventDefault();
@@ -687,6 +989,10 @@
     }
     if (e.key === 'Escape') {
       selected = '';
+      selectedIds = [];
+      selectedGroup = '';
+      selectionMenu = null;
+      groupMenu = null;
       connecting = '';
       tool = 'select';
     }
@@ -694,7 +1000,10 @@
     if (e.key.toLowerCase() === 'v') tool = 'select';
     if (e.key.toLowerCase() === 'h') tool = 'hand';
     if (e.key.toLowerCase() === 'c') tool = 'connect';
-    if (e.key === 'Delete' && selected) remove(selected);
+    if (e.key === 'Delete' && selectedGroup) deleteGroup(selectedGroup);
+    else if (e.key === 'Delete' && selectedIds.length) {
+      for (const id of [...selectedIds]) remove(id);
+    }
     if (e.key === '0') fit();
   }
   onMount(() => {
@@ -770,9 +1079,28 @@
   <header class="appbar" class:with-bench={doc.panes.length > 0}>
     <div class="brand"><img src="/icon.svg" alt="" />kelana</div>
     <span class="bar-divider"></span><input
-      class="board-title"
+      class="board-title floating-text-input"
+      class:editing={titleEditing}
       aria-label="Board title"
+      aria-readonly={!titleEditing}
+      readonly={!titleEditing}
+      tabindex={titleEditing ? 0 : -1}
+      bind:this={boardTitleInput}
       bind:value={doc.title}
+      onpointerdown={(event) => {
+        if (!titleEditing) event.preventDefault();
+      }}
+      ondblclick={(event) => {
+        event.preventDefault();
+        editBoardTitle();
+      }}
+      onblur={() => (titleEditing = false)}
+      onkeydown={(event) => {
+        if (event.key === 'Enter' || event.key === 'Escape') {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+      }}
       oninput={persist}
     />
     <div class="bar-right">
@@ -803,15 +1131,26 @@
       bind:this={board}
       role="region"
       aria-label="Whiteboard"
-      onpointerdown={pan}
+      onpointerdown={boardPointerDown}
+      oncontextmenu={(event) => {
+        if (selectedIds.length > 1) {
+          event.preventDefault();
+          const rect = board.getBoundingClientRect();
+          selectionMenu = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+          groupMenu = null;
+        }
+      }}
       onpointermove={(event) => {
         if (connecting) cursorWorld = point(event);
       }}
       ondragover={(e) => e.preventDefault()}
       ondrop={drop}
       ondblclick={(e) => {
-        if (!(e.target as HTMLElement).closest('.board-card,.toolbar,.zoom-controls'))
+        if (!(e.target as HTMLElement).closest('.board-card,.toolbar,.zoom-controls,.navigation-controls,.group-box')) {
+          e.preventDefault();
+          e.stopPropagation();
           addCard(point(e));
+        }
       }}
     >
       <div
@@ -823,6 +1162,68 @@
         class="scene"
         style:transform={`translate(${doc.camera.x}px,${doc.camera.y}px) scale(${doc.camera.zoom})`}
       >
+        {#each doc.groups ?? [] as group (group.id)}
+          {@const bounds = groupBounds(group)}
+          {#if bounds}<div
+              class={`group-box ${group.color} ${selectedGroup === group.id ? 'selected' : ''}`}
+              role="group"
+              aria-label={group.label}
+              style={`transform:translate(${bounds.x}px,${bounds.y}px);width:${bounds.width}px;height:${bounds.height}px;--label-scale:${Math.max(1, 1 / doc.camera.zoom)}`}
+              oncontextmenu={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                selectGroup(group.id);
+                const rect = board.getBoundingClientRect();
+                groupMenu = { id: group.id, x: event.clientX - rect.left, y: event.clientY - rect.top };
+                selectionMenu = null;
+              }}
+            >
+              <input
+                class="group-label floating-text-input"
+                class:editing={groupEditing === group.id}
+                aria-label="Group label"
+                aria-readonly={groupEditing !== group.id}
+                readonly={groupEditing !== group.id}
+                tabindex={groupEditing === group.id ? 0 : -1}
+                value={group.label}
+                onpointerdown={(event) => {
+                  event.stopPropagation();
+                  if (groupEditing !== group.id) event.preventDefault();
+                  selectGroup(group.id);
+                }}
+                ondblclick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  editGroupLabel(group, event.currentTarget);
+                }}
+                oninput={(event) => {
+                  group.label = event.currentTarget.value;
+                  persist();
+                }}
+                onblur={(event) => finishGroupLabel(group, event.currentTarget)}
+                onkeydown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    event.currentTarget.blur();
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    cancelGroupLabel(group, event.currentTarget);
+                  }
+                }}
+              />
+              {#each ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as direction}<button
+                  class={`group-resize-zone card-resize-zone ${direction}`}
+                  tabindex="-1"
+                  aria-label={`Resize ${group.label} ${direction}`}
+                  onpointerdown={(event) =>
+                    resizeGroup(
+                      event,
+                      group,
+                      direction as 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw',
+                    )}
+                ></button>{/each}
+            </div>{/if}
+        {/each}
         <svg class="edges" aria-hidden="true">
           <defs
             ><marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"
@@ -849,10 +1250,18 @@
             <ContextMenu.Root
               ><ContextMenu.Trigger
                 tabindex={0}
-                class={`board-card ${entity.color} ${selected === entity.id || focused === entity.id ? 'selected' : ''} ${editingBoard === entity.id ? 'editing' : ''} ${connecting && connecting !== entity.id ? 'connection-target' : ''} ${dragging && selected === entity.id ? 'dragging' : ''}`}
+                class={`board-card ${entity.color} ${selectedIds.includes(entity.id) || focused === entity.id ? 'selected' : ''} ${editingBoard === entity.id ? 'editing' : ''} ${connecting && connecting !== entity.id ? 'connection-target' : ''} ${dragging && selectedIds.includes(entity.id) ? 'dragging' : ''}`}
                 data-entity={entity.id}
                 style={`transform:translate(${p.x}px,${p.y}px);width:${p.width}px;height:${p.height}px;z-index:${p.z}`}
                 onpointerdown={(e) => dragCard(e, p)}
+                oncontextmenu={(event) => {
+                  if (selectedIds.length > 1 && selectedIds.includes(entity.id)) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const rect = board.getBoundingClientRect();
+                    selectionMenu = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+                  }
+                }}
                 onkeydown={(e) => {
                   if ((e.target as HTMLElement).closest('.live-editor,.editable')) return;
                   if (e.key === 'Enter') {
@@ -932,13 +1341,26 @@
                     onactive={(value) => {
                       editingBoard = value ? entity.id : '';
                       if (value) {
-                        selected = entity.id;
+                        selectOnly(entity.id);
                         focused = '';
                       }
                     }}
                     oninput={(body) => edit(entity.id, body)}
                     oncommit={(before) => editCommit(entity.id, before)}
                   />{/if}
+                {#if selectedIds.includes(entity.id) && editingBoard !== entity.id}
+                  {#each ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as direction}<button
+                      class={`card-resize-zone ${direction}`}
+                      tabindex="-1"
+                      aria-label={`Resize ${entity.title} ${direction}`}
+                      onpointerdown={(event) =>
+                        resizeCard(
+                          event,
+                          p,
+                          direction as 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw',
+                        )}
+                    ></button>{/each}
+                {/if}
               </ContextMenu.Trigger><ContextMenu.Portal
                 ><ContextMenu.Content class="context-menu"
                   ><ContextMenu.Item onclick={() => open(entity.id)}
@@ -974,6 +1396,40 @@
             >
           {/if}{/each}
       </div>
+      {#if marquee}<div
+          class="selection-marquee"
+          style={`left:${marquee.left}px;top:${marquee.top}px;width:${marquee.width}px;height:${marquee.height}px`}
+          aria-hidden="true"
+        ></div>{/if}
+      {#if selectionMenu}<div
+          class="floating-menu"
+          role="menu"
+          tabindex="-1"
+          style={`left:${selectionMenu.x}px;top:${selectionMenu.y}px`}
+          onpointerdown={(event) => event.stopPropagation()}
+        >
+          <button role="menuitem" onclick={createGroup}>Create group from {selectedIds.length} cards</button>
+        </div>{/if}
+      {#if groupMenu}{@const activeGroup = (doc.groups ?? []).find((group) => group.id === groupMenu?.id)}
+        {#if activeGroup}<div
+            class="floating-menu group-menu"
+            role="menu"
+            tabindex="-1"
+            style={`left:${groupMenu.x}px;top:${groupMenu.y}px`}
+            onpointerdown={(event) => event.stopPropagation()}
+          >
+            <div class="color-row" aria-label="Group color">
+              {#each colors as colorName}<button
+                  class={`swatch ${colorName}`}
+                  aria-label={`Set ${colorName} group color`}
+                  onclick={() => updateGroup(activeGroup.id, { color: colorName })}
+                ></button>{/each}
+            </div>
+            <button class="danger" role="menuitem" onclick={() => deleteGroup(activeGroup.id)}
+              >Delete group</button
+            >
+          </div>{/if}
+      {/if}
       <div
         class="toolbar"
         role="toolbar"
@@ -1031,7 +1487,32 @@
           ? connecting
             ? 'Choose the other card'
             : 'Choose a card to connect'
-          : 'Double-click to write · Drop a PDF to read'}
+          : navigationMode === 'mouse'
+            ? 'Middle-drag to pan · Wheel to zoom · Double-click to write'
+            : 'Two-finger pan · Pinch to zoom · Double-click to write'}
+      </div>
+      <div
+        class="navigation-controls"
+        role="toolbar"
+        tabindex="-1"
+        aria-label="Navigation mode"
+        onpointerdown={(event) => event.stopPropagation()}
+      >
+        <button
+          class:active={navigationMode === 'mouse'}
+          class="icon-button"
+          title="Mouse navigation: middle-drag to pan, wheel to zoom"
+          aria-label="Use mouse navigation"
+          aria-pressed={navigationMode === 'mouse'}
+          onclick={() => setNavigationMode('mouse')}><Mouse size={15} /></button
+        ><button
+          class:active={navigationMode === 'touchpad'}
+          class="icon-button"
+          title="Touchpad navigation: two-finger pan, pinch to zoom"
+          aria-label="Use touchpad navigation"
+          aria-pressed={navigationMode === 'touchpad'}
+          onclick={() => setNavigationMode('touchpad')}><Laptop size={15} /></button
+        >
       </div>
       <div
         class="zoom-controls"
@@ -1067,6 +1548,8 @@
         onfocus={(id) => {
           focused = id;
           selected = '';
+          selectedIds = [];
+          selectedGroup = '';
         }}
         onmove={move}
         onclose={close}
@@ -1144,7 +1627,7 @@
         >Shortcuts for your workspace.</Dialog.Description
       >
       <dl>
-        {#each [['N', 'New card'], ['V / H', 'Select / pan'], ['Space + drag', 'Pan the board'], ['Ctrl / ⌘ + wheel', 'Zoom around pointer'], ['C', 'Connect two cards'], ['Ctrl / ⌘ K', 'Search locally'], ['Ctrl / ⌘ Z', 'Undo'], ['Ctrl / ⌘ Shift Z', 'Redo'], ['0', 'Fit everything'], ['Enter on a card', 'Open in workbench'], ['Arrow keys on a card', 'Nudge position'], ['Shift F10', 'Card context menu']] as shortcut}<div
+        {#each [['N', 'New card'], ['V / H', 'Select / pan'], ['Space + drag', 'Pan the board'], ['Mouse mode', 'Middle-drag to pan · wheel to zoom'], ['Touchpad mode', 'Two-finger pan · pinch to zoom'], ['Drag empty space', 'Select multiple cards'], ['Right-click selection', 'Create a group'], ['Delete on a group', 'Remove group, keep its cards'], ['C', 'Connect two cards'], ['Ctrl / ⌘ K', 'Search locally'], ['Ctrl / ⌘ Z', 'Undo'], ['Ctrl / ⌘ Shift Z', 'Redo'], ['0', 'Fit everything'], ['Enter on a card', 'Open in workbench'], ['Arrow keys on a card', 'Nudge position'], ['Shift F10', 'Card context menu']] as shortcut}<div
           >
             <dt>{shortcut[0]}</dt>
             <dd>{shortcut[1]}</dd>

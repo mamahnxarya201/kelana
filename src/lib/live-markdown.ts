@@ -24,17 +24,14 @@ export function activeLines(state: EditorState) {
   return lines;
 }
 export function previewDecorations(state: EditorState): DecorationSet {
-  const active = activeLines(state),
-    marks: Range<Decoration>[] = [],
+  const marks: Range<Decoration>[] = [],
     paragraphs: { from: number; to: number }[] = [],
     codeLines = new Set<number>();
-  const inactive = (from: number, to: number) => {
-    for (let n = state.doc.lineAt(from).number; n <= state.doc.lineAt(to).number; n++)
-      if (active.has(n)) return false;
-    return true;
-  };
+  // Keep Markdown markers hidden while editing too. Revealing the active line
+  // made headings, emphasis, and list markers visibly change when a card was
+  // entered, even though the source text itself had not changed.
   const hide = (from: number, to: number) => {
-    if (to > from && inactive(from, to)) marks.push(Decoration.replace({}).range(from, to));
+    if (to > from) marks.push(Decoration.replace({}).range(from, to));
   };
   const lineClasses = new Map<number, string[]>();
   const addLine = (from: number, cls: string) => {
@@ -79,7 +76,7 @@ export function previewDecorations(state: EditorState): DecorationSet {
         }
         if (name === 'Blockquote') addLine(state.doc.line(lastLine).from, 'md-quote-end');
       }
-      if (name === 'ListMark' && inactive(from, to)) {
+      if (name === 'ListMark') {
         const raw = state.doc.sliceString(from, to);
         marks.push(
           Decoration.replace({ widget: new ListBullet(/^\d/.test(raw) ? raw : '•') }).range(
@@ -111,12 +108,13 @@ export function previewDecorations(state: EditorState): DecorationSet {
     addLine(state.doc.line(firstLine).from, 'md-first');
     addLine(state.doc.line(lastLine).from, 'md-last');
   }
-  // Blank source lines are collapsed in the rendered preview; hide them too
-  // (except inside code blocks or when the caret sits on them).
+  // Rendered Markdown collapses empty source lines between blocks. Collapse
+  // their line boxes too (but never code-block lines) so paragraphs retain
+  // exactly the same vertical positions in read and edit modes.
   for (let n = 1; n <= state.doc.lines; n++) {
     const line = state.doc.line(n);
-    if (!line.text.trim() || codeLines.has(n)) continue;
-    if (inactive(line.from, line.to)) marks.push(Decoration.replace({}).range(line.from, line.to));
+    if (state.doc.lines > 1 && !line.text.trim() && !codeLines.has(n))
+      addLine(line.from, 'md-blank');
   }
   for (const [from, classes] of lineClasses)
     marks.push(Decoration.line({ class: [...new Set(classes)].join(' ') }).range(from));

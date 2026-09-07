@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
-  import Markdown from './Markdown.svelte';
+  import { onDestroy, tick } from 'svelte';
   import LiveEditor from './LiveEditor.svelte';
   let {
     body,
@@ -24,21 +23,22 @@
   let editing = $state(false);
   let before = '';
   let position = $state(0);
-  function edit(event?: MouseEvent) {
+  let liveEditor: { focusAt: (position: number) => void; focusAtPoint: (x: number, y: number) => void };
+
+  async function edit(event?: MouseEvent) {
     if (editing) return;
     before = body;
     position = caret;
-    if (event) {
-      const target = event.target as HTMLElement;
-      const block = target.closest('p,h1,h2,h3,h4,h5,h6,li,blockquote');
-      const text = block?.textContent?.trim();
-      if (text) {
-        const found = body.indexOf(text.slice(0, 32));
-        if (found >= 0) position = found;
-      }
-    }
     editing = true;
     onactive(true);
+    await tick();
+    // The browser finishes dispatching the click that created/activated the
+    // card after this component mounts. Focus on the next frame so that click
+    // cannot steal the initial caret back from CodeMirror.
+    requestAnimationFrame(() => {
+      if (event) liveEditor?.focusAtPoint(event.clientX, event.clientY);
+      else liveEditor?.focusAt(position);
+    });
   }
   function finish() {
     if (!editing) return;
@@ -54,8 +54,35 @@
   });
 </script>
 
-{#if editing}<LiveEditor
+<div
+  class:editing
+  class="editable"
+  role="textbox"
+  tabindex={editing ? -1 : 0}
+  aria-label={activation === 'double' ? 'Double-click to edit card' : 'Edit card'}
+  aria-multiline="true"
+  onclick={(event) => {
+    if (activation === 'click') edit(event);
+  }}
+  ondblclick={(event) => {
+    if (activation === 'double') {
+      event.preventDefault();
+      event.stopPropagation();
+      edit(event);
+    }
+  }}
+  onkeydown={(event) => {
+    if (!editing && event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      edit();
+    }
+  }}
+>
+  <LiveEditor
+    bind:this={liveEditor}
     {body}
+    {editing}
     caret={position}
     {oninput}
     oncaret={(pos) => {
@@ -63,27 +90,5 @@
       oncaret(pos);
     }}
     onfinish={finish}
-  />{:else}<div
-    class="editable"
-    role="button"
-    tabindex="0"
-    aria-label={activation === 'double' ? 'Double-click to edit card' : 'Edit card'}
-    onclick={(event) => {
-      if (activation === 'click') edit(event);
-    }}
-    ondblclick={(event) => {
-      if (activation === 'double') {
-        event.stopPropagation();
-        edit(event);
-      }
-    }}
-    onkeydown={(event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        event.stopPropagation();
-        edit();
-      }
-    }}
-  >
-    {#if body}<Markdown text={body} />{:else}<p class="muted">Start writing…</p>{/if}
-  </div>{/if}
+  />
+</div>

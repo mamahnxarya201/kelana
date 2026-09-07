@@ -37,6 +37,16 @@ export type Pane = {
   folded?: boolean;
 };
 export type Edge = { id: string; from: string; to: string };
+export type Group = {
+  id: string;
+  label: string;
+  color: string;
+  entityIds: string[];
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+};
 export type Doc = {
   version: 1;
   title: string;
@@ -44,6 +54,8 @@ export type Doc = {
   placements: Placement[];
   panes: Pane[];
   edges: Edge[];
+  groups?: Group[];
+  navigationMode?: 'mouse' | 'touchpad';
   camera: Point & { zoom: number };
   benchWidth: number;
   benchSingleWidth?: number;

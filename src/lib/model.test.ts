@@ -105,7 +105,7 @@ test('single and double widths are remembered independently', () => {
   d.panes = closePane(d, 'card:notes');
   assert.equal(benchSize(d), 500);
 });
-test('live preview hides inactive syntax without changing source and reveals selected lines', () => {
+test('live editor hides Markdown syntax without changing source', () => {
   const text = '## Heading\n\nA **bold** thought\n\n- Parent\n  - Child';
   let state = EditorState.create({
     doc: text,
@@ -120,10 +120,12 @@ test('live preview hides inactive syntax without changing source and reveals sel
     return ranges;
   }
   assert.ok(hidden(state).some((r) => r.from === 0 && r.to === 3));
-  assert.ok(!hidden(state).some((r) => r.from === 14));
+  assert.ok(hidden(state).some((r) => r.from === 14));
   state = state.update({ selection: EditorSelection.single(0, 27) }).state;
   assert.deepEqual([...activeLines(state)], [1, 2, 3]);
-  assert.ok(!hidden(state).some((r) => r.from < 27));
+  // Editing must keep the rendered card stable; selecting a line must not
+  // reveal its Markdown markers.
+  assert.ok(hidden(state).some((r) => r.from === 0 && r.to === 3));
   assert.equal(state.doc.toString(), text);
 });
 test('bezier anchors stay finite and move continuously across a corner', () => {

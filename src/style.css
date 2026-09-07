@@ -71,8 +71,6 @@ button:disabled {
   cursor: default;
 }
 button:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
@@ -96,6 +94,19 @@ input,
 textarea {
   border: 0;
   outline: none;
+  box-shadow: none;
+}
+input:not([type]),
+input[type='text'],
+input[type='search'],
+textarea {
+  background: transparent;
+  appearance: none;
+}
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 button svg {
   vertical-align: middle;
@@ -423,17 +434,29 @@ blockquote {
   font-size: 12px;
   pointer-events: none;
 }
-.zoom-controls {
+.zoom-controls,
+.navigation-controls {
   display: flex;
   align-items: center;
   position: absolute;
   bottom: 18px;
-  right: 20px;
   padding: 3px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 2px 8px #00000004;
+  z-index: 12;
+}
+.zoom-controls {
+  right: 20px;
+}
+.navigation-controls {
+  right: 205px;
+  gap: 2px;
+}
+.navigation-controls .icon-button.active {
+  color: #405ac4;
+  background: #e9edff;
 }
 .zoom-controls .tool-divider {
   width: 1px;
@@ -444,6 +467,122 @@ blockquote {
   min-width: 47px;
   border-radius: 4px;
   height: 28px;
+}
+.selection-marquee {
+  position: absolute;
+  z-index: 20;
+  pointer-events: none;
+  border: 1px solid #7189df;
+  background: #7189df18;
+  border-radius: 3px;
+}
+.group-box {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--group-color, #ddeaff) 28%, transparent);
+  color: #727168;
+  pointer-events: none;
+}
+.group-box.selected {
+  border-color: #8399ea;
+  outline: 1px solid #8399ea;
+  outline-offset: 1px;
+}
+.group-resize-zone {
+  pointer-events: auto;
+}
+.group-box.white { --group-color: #ffffff; }
+.group-box.yellow { --group-color: #fff2b8; }
+.group-box.blue { --group-color: #ddeaff; }
+.group-box.green { --group-color: #dff2d8; }
+.group-box.pink { --group-color: #f3dde7; }
+.group-box.purple { --group-color: #e9ddf5; }
+.group-label {
+  position: absolute;
+  left: 8px;
+  top: -8px;
+  transform: translateY(-100%) scale(var(--label-scale, 1));
+  transform-origin: left bottom;
+  pointer-events: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #55544e;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  box-shadow: none;
+  text-shadow: none;
+}
+input.floating-text-input {
+  field-sizing: content;
+  box-sizing: content-box;
+  width: auto;
+  padding: 3px 7px;
+  border: 1px solid #d6d5ce;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--group-color, #fff) 78%, white);
+  box-shadow: 0 1px 3px #0000000b;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+input.floating-text-input:hover {
+  border-color: #c6c5bd;
+}
+input.floating-text-input.editing:focus {
+  border-color: #8399ea;
+  outline: none;
+}
+.board-title.floating-text-input {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.board-title.floating-text-input:hover {
+  border-color: transparent;
+}
+.board-title.floating-text-input.editing,
+.board-title.floating-text-input.editing:hover {
+  border-color: #8399ea;
+  box-shadow: 0 1px 3px #0000000b;
+}
+.group-label.floating-text-input {
+  min-width: 4ch;
+  max-width: 360px;
+}
+.floating-text-input[readonly] {
+  cursor: default;
+}
+.floating-text-input.editing {
+  cursor: text;
+}
+.floating-menu {
+  position: absolute;
+  z-index: 40;
+  min-width: 190px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+.floating-menu > button {
+  width: 100%;
+  padding: 8px 9px;
+  text-align: left;
+  border-radius: 5px;
+}
+.floating-menu > button:hover {
+  background: #00000008;
+}
+.group-menu .color-row {
+  padding: 6px 8px;
 }
 .workbench {
   position: relative;
