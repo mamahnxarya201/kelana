@@ -20,6 +20,7 @@
     Check,
     LoaderCircle,
     Keyboard,
+    Settings,
     Upload,
     Highlighter,
     Mouse,
@@ -44,9 +45,11 @@
     type Group,
     type Edge,
     type ConnectionSide,
+    type FontId,
   } from './lib/model';
   import { loadDoc, saveDoc, saveAsset, loadPdfText, savePdfText } from './lib/storage';
   import { titleFromMarkdown } from './lib/markdown';
+  import { fontFamily, fontOptions } from './lib/fonts';
   import { acquirePdf, releasePdf } from './lib/pdf';
   import Editor from './Editor.svelte';
   import AssetImage from './AssetImage.svelte';
@@ -88,6 +91,8 @@
   let dragging = $state(false);
   let searchOpen = $state(false);
   let helpOpen = $state(false);
+  let settingsOpen = $state(false);
+  let settingsQuery = $state('');
   let query = $state('');
   let hits = $state<string[]>([]);
   let indexing = $state(0);
@@ -107,6 +112,11 @@
   let loadFailed = $state(false);
   const colors = ['white', 'yellow', 'blue', 'green', 'pink', 'purple'];
   const navigationMode = $derived(doc.navigationMode ?? 'touchpad');
+  const whiteboardFont = $derived(doc.whiteboardFont ?? 'inter');
+  const interfaceFont = $derived(doc.interfaceFont ?? 'inter');
+  const appearanceMatches = $derived(
+    !settingsQuery.trim() || 'appearance font typography'.includes(settingsQuery.trim().toLowerCase()),
+  );
   const grid = $derived(new SpatialGrid(doc.placements));
   const visible = $derived(
     grid.query(
@@ -123,6 +133,14 @@
   const columns = $derived(
     hasSecondary ? (['primary', 'secondary'] as const) : (['primary'] as const),
   );
+  $effect(() => {
+    document.documentElement.style.setProperty('--font-ui', fontFamily(interfaceFont));
+    document.documentElement.style.setProperty('--font-content', fontFamily(whiteboardFont));
+  });
+  function setFont(target: 'whiteboardFont' | 'interfaceFont', value: FontId) {
+    doc[target] = value;
+    persist();
+  }
   function stabilizeConnectionSides(value: Doc): Doc {
     const placements = new Map(value.placements.map((placement) => [placement.entityId, placement]));
     for (const edge of value.edges) {
@@ -1079,7 +1097,7 @@
       searchOpen = true;
       return;
     }
-    if (input || searchOpen || helpOpen || (e.target as HTMLElement).closest('[role="menu"]'))
+    if (input || searchOpen || helpOpen || settingsOpen || (e.target as HTMLElement).closest('[role="menu"]'))
       return;
     if (e.code === 'Space') {
       space = true;
@@ -1239,6 +1257,11 @@
         title="Keyboard shortcuts"
         aria-label="Keyboard shortcuts"
         onclick={() => (helpOpen = true)}><Keyboard size={17} /></button
+      ><button
+        class="icon-button"
+        title="Settings"
+        aria-label="Settings"
+        onclick={() => (settingsOpen = true)}><Settings size={17} /></button
       >
     </div>
   </header>
@@ -1816,6 +1839,72 @@
           </p>{/if}
       </div></Dialog.Content
     ></Dialog.Portal
+  ></Dialog.Root
+>
+<Dialog.Root bind:open={settingsOpen}
+  ><Dialog.Portal
+    ><Dialog.Overlay class="dialog-overlay" /><Dialog.Content class="settings-dialog"
+      ><Dialog.Title class="sr-only">Settings</Dialog.Title><Dialog.Description class="sr-only"
+        >Choose fonts for your content and interface.</Dialog.Description
+      >
+      <aside class="settings-sidebar">
+        <h2>Settings</h2>
+        <label class="settings-search">
+          <span class="sr-only">Search settings</span>
+          <Search size={14} aria-hidden="true" />
+          <input bind:value={settingsQuery} type="search" placeholder="Search" />
+        </label>
+        <nav aria-label="Settings sections">
+          {#if appearanceMatches}<button class="active" aria-current="page"
+              ><span class="settings-nav-icon">Aa</span>Appearance</button
+            >{:else}<p class="settings-empty">No settings found</p>{/if}
+        </nav>
+      </aside>
+      <section class="settings-main">
+        <div class="settings-heading">
+          <div><small>Appearance</small><h2>Fonts</h2></div>
+          <Dialog.Close class="icon-button" aria-label="Close settings"><X size={17} /></Dialog.Close>
+        </div>
+        {#if appearanceMatches}<div class="settings-group">
+            <label class="font-setting">
+              <span><strong>Whiteboard font</strong><small
+                  >Cards and writing surfaces. PDF documents are never changed.</small
+                ></span
+              >
+              <select
+                aria-label="Whiteboard font"
+                value={whiteboardFont}
+                onchange={(event) =>
+                  setFont('whiteboardFont', event.currentTarget.value as FontId)}
+              >
+                {#each fontOptions as font}<option value={font.id}>{font.label}</option>{/each}
+              </select>
+              <span class="font-sample content-sample"
+                ><b>Notes become paths.</b> The quick brown fox jumps over the lazy dog.</span
+              >
+            </label>
+            <label class="font-setting">
+              <span><strong>Interface font</strong><small
+                  >Menus, controls, dialogs, and application labels.</small
+                ></span
+              >
+              <select
+                aria-label="Interface font"
+                value={interfaceFont}
+                onchange={(event) =>
+                  setFont('interfaceFont', event.currentTarget.value as FontId)}
+              >
+                {#each fontOptions as font}<option value={font.id}>{font.label}</option>{/each}
+              </select>
+              <span class="font-sample ui-sample"
+                ><b>Thinking space</b> · Search, connect, and keep writing.</span
+              >
+            </label>
+          </div>{:else}<div class="settings-no-results">
+            <Search size={20} aria-hidden="true" /><p>No settings match “{settingsQuery}”.</p>
+          </div>{/if}
+      </section>
+    </Dialog.Content></Dialog.Portal
   ></Dialog.Root
 >
 <Dialog.Root bind:open={helpOpen}

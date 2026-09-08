@@ -37,6 +37,13 @@ export type Pane = {
   folded?: boolean;
 };
 export type ConnectionSide = 'top' | 'right' | 'bottom' | 'left';
+export type FontId =
+  | 'inter'
+  | 'source-sans'
+  | 'source-serif'
+  | 'lora'
+  | 'stix-two'
+  | 'libertinus';
 export type Edge = {
   id: string;
   from: string;
@@ -63,6 +70,8 @@ export type Doc = {
   edges: Edge[];
   groups?: Group[];
   navigationMode?: 'mouse' | 'touchpad';
+  whiteboardFont?: FontId;
+  interfaceFont?: FontId;
   camera: Point & { zoom: number };
   benchWidth: number;
   benchSingleWidth?: number;
