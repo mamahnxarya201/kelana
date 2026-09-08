@@ -36,7 +36,14 @@ export type Pane = {
   readOffset?: number;
   folded?: boolean;
 };
-export type Edge = { id: string; from: string; to: string };
+export type ConnectionSide = 'top' | 'right' | 'bottom' | 'left';
+export type Edge = {
+  id: string;
+  from: string;
+  to: string;
+  fromSide?: ConnectionSide;
+  toSide?: ConnectionSide;
+};
 export type Group = {
   id: string;
   label: string;
@@ -206,7 +213,15 @@ export function seed(): Doc {
       z: i,
     })),
     panes: [],
-    edges: [{ id: 'edge:seed', from: 'card:question', to: 'card:notes' }],
+    edges: [
+      {
+        id: 'edge:seed',
+        from: 'card:question',
+        to: 'card:notes',
+        fromSide: 'bottom',
+        toSide: 'top',
+      },
+    ],
     camera: { x: 0, y: 0, zoom: 1 },
     benchWidth: 530,
   };

@@ -42,6 +42,8 @@
     type Anchor,
     type Point,
     type Group,
+    type Edge,
+    type ConnectionSide,
   } from './lib/model';
   import { loadDoc, saveDoc, saveAsset, loadPdfText, savePdfText } from './lib/storage';
   import { acquirePdf, releasePdf } from './lib/pdf';
@@ -49,7 +51,15 @@
   import Editor from './Editor.svelte';
   import AssetImage from './AssetImage.svelte';
   import Workbench from './Workbench.svelte';
-  import { connectionPath, previewPath } from './lib/connections';
+  import {
+    connectionPath,
+    previewPath,
+    connectionPoint,
+    nearestConnectionSide,
+    facingConnectionSides,
+    defaultBezierConfig,
+    type BezierConfig,
+  } from './lib/connections';
   let doc = $state<Doc>(seed());
   let loaded = $state(false);
   let saveStatus = $state('Opening…');
@@ -70,7 +80,10 @@
   let cursorWorld = $state<Point>({ x: 0, y: 0 });
   const edgeNodes = new Map<string, SVGPathElement>();
   let tool = $state<'select' | 'hand' | 'connect'>('select');
-  let connecting = $state('');
+  let connecting = $state<{ entityId: string; side: ConnectionSide } | null>(null);
+  let snapTarget = $state<{ entityId: string; side: ConnectionSide } | null>(null);
+  let curveSettingsOpen = $state(false);
+  let bezier = $state<BezierConfig>({ ...defaultBezierConfig });
   let space = $state(false);
   let dragging = $state(false);
   let searchOpen = $state(false);
@@ -110,6 +123,19 @@
   const columns = $derived(
     hasSecondary ? (['primary', 'secondary'] as const) : (['primary'] as const),
   );
+  function stabilizeConnectionSides(value: Doc): Doc {
+    const placements = new Map(value.placements.map((placement) => [placement.entityId, placement]));
+    for (const edge of value.edges) {
+      if (edge.fromSide && edge.toSide) continue;
+      const from = placements.get(edge.from);
+      const to = placements.get(edge.to);
+      if (!from || !to) continue;
+      const sides = facingConnectionSides(from, to);
+      edge.fromSide ??= sides[0];
+      edge.toSide ??= sides[1];
+    }
+    return value;
+  }
   function notify(text: string) {
     notice = text;
     clearTimeout(notificationTimer);
@@ -448,18 +474,41 @@
     await open(e.anchor.pdfId);
     view(e.anchor.pdfId, { page: e.anchor.page, jump: Date.now() });
   }
-  function connect(id: string) {
-    if (!connecting) {
-      connecting = id;
-      notify('Choose another card to connect.');
+  function makeEdge(
+    from: string,
+    to: string,
+    fromSide?: ConnectionSide,
+    toSide?: ConnectionSide,
+    fromPlacement = placementsByEntity.get(from),
+    toPlacement = placementsByEntity.get(to),
+  ): Edge {
+    if ((!fromSide || !toSide) && fromPlacement && toPlacement) {
+      const facing = facingConnectionSides(fromPlacement, toPlacement);
+      fromSide ??= facing[0];
+      toSide ??= facing[1];
+    }
+    return { id: uid('edge'), from, to, fromSide, toSide };
+  }
+  function finishConnection(to: string, toSide: ConnectionSide) {
+    if (!connecting || connecting.entityId === to) {
+      connecting = null;
       return;
     }
-    if (connecting !== id && !doc.edges.some((e) => e.from === connecting && e.to === id)) {
-      const edge = { id: uid('edge'), from: connecting, to: id };
+    const source = connecting;
+    if (
+      !doc.edges.some(
+        (edge) =>
+          edge.from === source.entityId &&
+          edge.to === to &&
+          edge.fromSide === source.side &&
+          edge.toSide === toSide,
+      )
+    ) {
+      const edge = makeEdge(source.entityId, to, source.side, toSide);
       commit([{ collection: 'edges', id: edge.id, before: undefined, after: edge }]);
     }
-    connecting = '';
-    tool = 'select';
+    connecting = null;
+    snapTarget = null;
   }
   function point(event: { clientX: number; clientY: number }) {
     const r = board.getBoundingClientRect();
@@ -657,6 +706,7 @@
       card.style.width = `${next.width}px`;
       card.style.height = `${next.height}px`;
       refreshEdges(placement.entityId, next);
+      refreshPorts(placement.entityId, next);
     };
     const finish = () => {
       handle.removeEventListener('pointermove', movement);
@@ -728,13 +778,43 @@
     node.addEventListener('pointerup', finish);
     node.addEventListener('pointercancel', finish);
   }
+  function updateConnectionPreview(event: PointerEvent) {
+    cursorWorld = point(event);
+    if (!connecting) {
+      snapTarget = null;
+      return;
+    }
+    const landed = document.elementFromPoint(event.clientX, event.clientY);
+    const exactPort = landed?.closest<HTMLElement>('.connection-port');
+    const targetCard = landed?.closest<HTMLElement>('.board-card');
+    const targetId = exactPort?.dataset.entity ?? targetCard?.dataset.entity;
+    if (!targetId || targetId === connecting.entityId) {
+      snapTarget = null;
+      return;
+    }
+    const targetPlacement = placementsByEntity.get(targetId);
+    if (!targetPlacement) {
+      snapTarget = null;
+      return;
+    }
+    snapTarget = {
+      entityId: targetId,
+      side: exactPort?.dataset.side
+        ? (exactPort.dataset.side as ConnectionSide)
+        : nearestConnectionSide(targetPlacement, cursorWorld),
+    };
+  }
   function boardPointerDown(event: PointerEvent) {
     if (event.button === 1) {
       pan(event);
       return;
     }
-    if ((event.target as HTMLElement).closest('.board-card,.toolbar,.zoom-controls,.navigation-controls,.group-label,.floating-menu'))
+    if ((event.target as HTMLElement).closest('.board-card,.toolbar,.zoom-controls,.navigation-controls,.group-label,.floating-menu,.curve-settings'))
       return;
+    if (connecting) {
+      connecting = null;
+      return;
+    }
     if (space || tool === 'hand') {
       clearBoardInteraction();
       pan(event);
@@ -749,9 +829,9 @@
       return;
     if (event.detail > 1) return;
     event.stopPropagation();
-    if (tool === 'connect') {
-      cursorWorld = point(event);
-      connect(p.entityId);
+    if (connecting) {
+      event.preventDefault();
+      finishConnection(p.entityId, nearestConnectionSide(p, point(event)));
       return;
     }
     if (space || tool === 'hand') {
@@ -776,6 +856,7 @@
       raf = requestAnimationFrame(() => {
         node.style.transform = `translate(${x}px,${y}px)`;
         refreshEdges(p.entityId, { ...before, x, y });
+        refreshPorts(p.entityId, { ...before, x, y });
       });
     };
     const finish = () => {
@@ -785,6 +866,7 @@
       node.removeEventListener('pointercancel', cancel);
       dragging = false;
       refreshEdges(p.entityId, { ...before, x, y });
+      refreshPorts(p.entityId, { ...before, x, y });
       if (x !== before.x || y !== before.y)
         commit([{ collection: 'placements', id: p.id, before, after: { ...before, x, y } }]);
     };
@@ -909,33 +991,63 @@
       if (edge.from !== id && edge.to !== id) continue;
       const a = edge.from === id ? override : placementsByEntity.get(edge.from),
         b = edge.to === id ? override : placementsByEntity.get(edge.to);
-      if (a && b) edgeNodes.get(edge.id)?.setAttribute('d', connectionPath(a, b));
+      if (a && b)
+        edgeNodes
+          .get(edge.id)
+          ?.setAttribute('d', connectionPath(a, b, edge.fromSide, edge.toSide, bezier));
     }
   }
-  function connectionDrag(event: PointerEvent, p: Placement) {
+  function refreshPorts(id: string, placement: Placement) {
+    for (const port of board.querySelectorAll<HTMLElement>('.connection-port')) {
+      if (port.dataset.entity !== id || !port.dataset.side) continue;
+      const anchor = connectionPoint(placement, port.dataset.side as ConnectionSide);
+      port.style.left = `${anchor.x}px`;
+      port.style.top = `${anchor.y}px`;
+    }
+  }
+  function connectionDrag(event: PointerEvent, p: Placement, side: ConnectionSide) {
+    if (event.button !== 0) return;
     event.stopPropagation();
     event.preventDefault();
-    connecting = p.entityId;
-    cursorWorld = point(event);
+    if (connecting && connecting.entityId !== p.entityId) {
+      finishConnection(p.entityId, side);
+      return;
+    }
+    if (connecting?.entityId === p.entityId && connecting.side === side) {
+      connecting = null;
+      snapTarget = null;
+      return;
+    }
+    connecting = { entityId: p.entityId, side };
+    snapTarget = null;
+    cursorWorld = connectionPoint(p, side);
     const node = event.currentTarget as HTMLElement;
+    const start = { x: event.clientX, y: event.clientY };
+    let moved = false;
     node.setPointerCapture(event.pointerId);
-    const movement = (e: PointerEvent) => (cursorWorld = point(e));
-    const end = (e: PointerEvent) => {
+    const movement = (moveEvent: PointerEvent) => {
+      if (Math.hypot(moveEvent.clientX - start.x, moveEvent.clientY - start.y) > 3) moved = true;
+      updateConnectionPreview(moveEvent);
+    };
+    const cleanup = () => {
       node.removeEventListener('pointermove', movement);
       node.removeEventListener('pointerup', end);
       node.removeEventListener('pointercancel', cancel);
-      const target = document
-        .elementFromPoint(e.clientX, e.clientY)
-        ?.closest<HTMLElement>('.board-card');
-      if (target?.dataset.entity && target.dataset.entity !== p.entityId)
-        connect(target.dataset.entity);
-      else connecting = '';
+    };
+    const end = (endEvent: PointerEvent) => {
+      cleanup();
+      if (!moved) return;
+      updateConnectionPreview(endEvent);
+      if (snapTarget) finishConnection(snapTarget.entityId, snapTarget.side);
+      else {
+        connecting = null;
+        snapTarget = null;
+      }
     };
     const cancel = () => {
-      node.removeEventListener('pointermove', movement);
-      node.removeEventListener('pointerup', end);
-      node.removeEventListener('pointercancel', cancel);
-      connecting = '';
+      cleanup();
+      connecting = null;
+      snapTarget = null;
     };
     node.addEventListener('pointermove', movement);
     node.addEventListener('pointerup', end);
@@ -943,7 +1055,7 @@
   }
   function placeHighlight(id: string) {
     const p = place(id);
-    const edge = { id: uid('edge'), from: doc.entities[id].anchor!.pdfId, to: id };
+    const edge = makeEdge(doc.entities[id].anchor!.pdfId, id, undefined, undefined, undefined, p);
     const changes: Change[] = [{ collection: 'placements', id: p.id, before: undefined, after: p }];
     if (!doc.edges.some((e) => e.from === edge.from && e.to === edge.to))
       changes.push({ collection: 'edges', id: edge.id, before: undefined, after: edge });
@@ -960,7 +1072,7 @@
       ];
       const anchor = doc.entities[id].anchor;
       if (anchor && !doc.edges.some((e) => e.from === anchor.pdfId && e.to === id)) {
-        const edge = { id: uid('edge'), from: anchor.pdfId, to: id };
+        const edge = makeEdge(anchor.pdfId, id, undefined, undefined, undefined, p);
         changes.push({ collection: 'edges', id: edge.id, before: undefined, after: edge });
       }
       commit(changes);
@@ -993,13 +1105,30 @@
       selectedGroup = '';
       selectionMenu = null;
       groupMenu = null;
-      connecting = '';
+      connecting = null;
+      snapTarget = null;
       tool = 'select';
+      curveSettingsOpen = false;
     }
     if (e.key.toLowerCase() === 'n') addCard();
-    if (e.key.toLowerCase() === 'v') tool = 'select';
-    if (e.key.toLowerCase() === 'h') tool = 'hand';
-    if (e.key.toLowerCase() === 'c') tool = 'connect';
+    if (e.key.toLowerCase() === 'v') {
+      tool = 'select';
+      curveSettingsOpen = false;
+      connecting = null;
+      snapTarget = null;
+    }
+    if (e.key.toLowerCase() === 'h') {
+      tool = 'hand';
+      curveSettingsOpen = false;
+      connecting = null;
+      snapTarget = null;
+    }
+    if (e.key.toLowerCase() === 'c') {
+      tool = tool === 'connect' ? 'select' : 'connect';
+      curveSettingsOpen = tool === 'connect';
+      connecting = null;
+      snapTarget = null;
+    }
     if (e.key === 'Delete' && selectedGroup) deleteGroup(selectedGroup);
     else if (e.key === 'Delete' && selectedIds.length) {
       for (const id of [...selectedIds]) remove(id);
@@ -1015,7 +1144,7 @@
     loadDoc()
       .then((saved) => {
         if (!alive) return;
-        if (saved) doc = saved;
+        if (saved) doc = stabilizeConnectionSides(saved);
         loaded = true;
         saveStatus = 'Saved on this device';
         updateSearch();
@@ -1126,7 +1255,7 @@
   <main inert={!loaded}>
     <div
       class:hand={tool === 'hand' || space}
-      class:connecting={tool === 'connect'}
+      class:connecting={Boolean(connecting)}
       class="board"
       bind:this={board}
       role="region"
@@ -1141,7 +1270,7 @@
         }
       }}
       onpointermove={(event) => {
-        if (connecting) cursorWorld = point(event);
+        if (connecting) updateConnectionPreview(event);
       }}
       ondragover={(e) => e.preventDefault()}
       ondrop={drop}
@@ -1153,11 +1282,6 @@
         }
       }}
     >
-      <div
-        class="board-grid"
-        style:background-position={`${doc.camera.x}px ${doc.camera.y}px`}
-        style:background-size={`${24 * doc.camera.zoom}px ${24 * doc.camera.zoom}px`}
-      ></div>
       <div
         class="scene"
         style:transform={`translate(${doc.camera.x}px,${doc.camera.y}px) scale(${doc.camera.zoom})`}
@@ -1226,7 +1350,7 @@
         {/each}
         <svg class="edges" aria-hidden="true">
           <defs
-            ><marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"
+            ><marker id="arrow" markerWidth="7" markerHeight="7" refX="7" refY="3.5" orient="auto"
               ><path d="M0 0 L7 3.5 L0 7" fill="none" stroke="#aaa9a1" /></marker
             ></defs
           >
@@ -1236,13 +1360,25 @@
             {#if a && b}<path
                 use:edgeNode={edge.id}
                 class="connection"
-                d={connectionPath(a, b)}
+                d={connectionPath(a, b, edge.fromSide, edge.toSide, bezier)}
                 marker-end="url(#arrow)"
               />{/if}
           {/each}
-          {#if connecting && placementsByEntity.has(connecting)}<path
+          {#if connecting && placementsByEntity.has(connecting.entityId)}{@const sourcePlacement = placementsByEntity.get(
+              connecting.entityId,
+            )!}{@const targetPlacement = snapTarget
+              ? placementsByEntity.get(snapTarget.entityId)
+              : undefined}<path
               class="connection-preview"
-              d={previewPath(placementsByEntity.get(connecting)!, cursorWorld)}
+              d={snapTarget && targetPlacement
+                ? connectionPath(
+                    sourcePlacement,
+                    targetPlacement,
+                    connecting.side,
+                    snapTarget.side,
+                    bezier,
+                  )
+                : previewPath(sourcePlacement, connecting.side, cursorWorld, bezier)}
               marker-end="url(#arrow)"
             />{/if}
         </svg>
@@ -1250,7 +1386,7 @@
             <ContextMenu.Root
               ><ContextMenu.Trigger
                 tabindex={0}
-                class={`board-card ${entity.color} ${selectedIds.includes(entity.id) || focused === entity.id ? 'selected' : ''} ${editingBoard === entity.id ? 'editing' : ''} ${connecting && connecting !== entity.id ? 'connection-target' : ''} ${dragging && selectedIds.includes(entity.id) ? 'dragging' : ''}`}
+                class={`board-card ${entity.color} ${selectedIds.includes(entity.id) || focused === entity.id ? 'selected' : ''} ${editingBoard === entity.id ? 'editing' : ''} ${connecting && connecting.entityId !== entity.id ? 'connection-target' : ''} ${connecting?.entityId === entity.id ? 'connection-source' : ''} ${dragging && selectedIds.includes(entity.id) ? 'dragging' : ''}`}
                 data-entity={entity.id}
                 style={`transform:translate(${p.x}px,${p.y}px);width:${p.width}px;height:${p.height}px;z-index:${p.z}`}
                 onpointerdown={(e) => dragCard(e, p)}
@@ -1308,12 +1444,6 @@
                     /><path d="M9 3v10h4V3Z" fill="currentColor" /></svg
                   ></button
                 >
-                {#if tool === 'connect'}<button
-                    class="connection-port"
-                    aria-label="Drag to connect card"
-                    title="Drag to another card"
-                    onpointerdown={(event) => connectionDrag(event, p)}><Plus size={12} /></button
-                  >{/if}
                 {#if doc.camera.zoom < 0.35 && editingBoard !== entity.id}<strong
                     >{entity.title}</strong
                   >{:else if entity.type === 'pdf'}<div class="pdf-cover">
@@ -1371,9 +1501,13 @@
                     >Duplicate</ContextMenu.Item
                   ><ContextMenu.Item
                     onclick={() => {
+                      const side: ConnectionSide = 'right';
                       tool = 'connect';
-                      connecting = entity.id;
-                    }}>Connect to…</ContextMenu.Item
+                      curveSettingsOpen = true;
+                      snapTarget = null;
+                      connecting = { entityId: entity.id, side };
+                      cursorWorld = connectionPoint(p, side);
+                    }}>Connect from right…</ContextMenu.Item
                   ><ContextMenu.Separator class="menu-separator" />
                   <div class="color-row">
                     {#each ['white', 'yellow', 'blue', 'green', 'pink', 'purple'] as c}<button
@@ -1394,6 +1528,21 @@
                 ></ContextMenu.Portal
               ></ContextMenu.Root
             >
+            {#if tool === 'connect'}{#each ['top', 'right', 'bottom', 'left'] as side}{@const portPoint = connectionPoint(
+                  p,
+                  side as ConnectionSide,
+                )}<button
+                  class="connection-port"
+                  class:active={connecting?.entityId === entity.id && connecting.side === side}
+                  class:snap-target={snapTarget?.entityId === entity.id && snapTarget.side === side}
+                  data-entity={entity.id}
+                  data-side={side}
+                  style={`left:${portPoint.x}px;top:${portPoint.y}px`}
+                  aria-label={`Connect from ${side} of ${entity.title}`}
+                  title={`Connect from ${side}`}
+                  onpointerdown={(event) =>
+                    connectionDrag(event, p, side as ConnectionSide)}
+                ></button>{/each}{/if}
           {/if}{/each}
       </div>
       {#if marquee}<div
@@ -1442,13 +1591,23 @@
           class="icon-button"
           title="Select · V"
           aria-label="Select tool"
-          onclick={() => (tool = 'select')}><MousePointer2 size={19} /></button
+          onclick={() => {
+            tool = 'select';
+            curveSettingsOpen = false;
+            connecting = null;
+            snapTarget = null;
+          }}><MousePointer2 size={19} /></button
         ><button
           class:active={tool === 'hand'}
           class="icon-button"
           title="Pan · H or hold Space"
           aria-label="Pan tool"
-          onclick={() => (tool = 'hand')}><Hand size={19} /></button
+          onclick={() => {
+            tool = 'hand';
+            curveSettingsOpen = false;
+            connecting = null;
+            snapTarget = null;
+          }}><Hand size={19} /></button
         ><span class="tool-divider"></span><button
           class="icon-button"
           title="New card · N"
@@ -1464,9 +1623,12 @@
           class="icon-button"
           title="Connect cards · C"
           aria-label="Connect cards"
+          aria-pressed={tool === 'connect'}
           onclick={() => {
-            tool = 'connect';
-            connecting = '';
+            tool = tool === 'connect' ? 'select' : 'connect';
+            curveSettingsOpen = tool === 'connect';
+            connecting = null;
+            snapTarget = null;
           }}><Link2 size={19} /></button
         ><span class="tool-divider"></span><button
           class="icon-button"
@@ -1482,11 +1644,57 @@
           onclick={redo}><Redo2 size={18} /></button
         >
       </div>
+      {#if curveSettingsOpen}<div
+          class="curve-settings"
+          role="group"
+          aria-label="Bezier curve settings"
+          onpointerdown={(event) => event.stopPropagation()}
+        >
+          <div class="curve-settings-title"><strong>Bezier curve</strong><button
+              onclick={() => (bezier = { ...defaultBezierConfig })}>Reset</button
+            ></div
+          >
+          <label>Curvature <output>{bezier.curvature.toFixed(2)}</output><input
+              type="range"
+              min="0"
+              max="1.5"
+              step="0.05"
+              bind:value={bezier.curvature}
+            /></label>
+          <label>Minimum pull <output>{bezier.minControlDistance}px</output><input
+              type="range"
+              min="0"
+              max="160"
+              step="5"
+              bind:value={bezier.minControlDistance}
+            /></label>
+          <label>Maximum pull <output>{bezier.maxControlDistance}px</output><input
+              type="range"
+              min="40"
+              max="400"
+              step="10"
+              bind:value={bezier.maxControlDistance}
+            /></label>
+          <label>Source pull <output>{bezier.sourcePull.toFixed(2)}</output><input
+              type="range"
+              min="0"
+              max="2"
+              step="0.05"
+              bind:value={bezier.sourcePull}
+            /></label>
+          <label>Target pull <output>{bezier.targetPull.toFixed(2)}</output><input
+              type="range"
+              min="0"
+              max="2"
+              step="0.05"
+              bind:value={bezier.targetPull}
+            /></label>
+        </div>{/if}
       <div class="board-hint">
         {tool === 'connect'
           ? connecting
-            ? 'Choose the other card'
-            : 'Choose a card to connect'
+            ? 'Choose a destination dot or release anywhere inside a card'
+            : 'Click or drag from a card dot'
           : navigationMode === 'mouse'
             ? 'Middle-drag to pan · Wheel to zoom · Double-click to write'
             : 'Two-finger pan · Pinch to zoom · Double-click to write'}
@@ -1627,7 +1835,7 @@
         >Shortcuts for your workspace.</Dialog.Description
       >
       <dl>
-        {#each [['N', 'New card'], ['V / H', 'Select / pan'], ['Space + drag', 'Pan the board'], ['Mouse mode', 'Middle-drag to pan · wheel to zoom'], ['Touchpad mode', 'Two-finger pan · pinch to zoom'], ['Drag empty space', 'Select multiple cards'], ['Right-click selection', 'Create a group'], ['Delete on a group', 'Remove group, keep its cards'], ['C', 'Connect two cards'], ['Ctrl / ⌘ K', 'Search locally'], ['Ctrl / ⌘ Z', 'Undo'], ['Ctrl / ⌘ Shift Z', 'Redo'], ['0', 'Fit everything'], ['Enter on a card', 'Open in workbench'], ['Arrow keys on a card', 'Nudge position'], ['Shift F10', 'Card context menu']] as shortcut}<div
+        {#each [['N', 'New card'], ['V / H', 'Select / pan'], ['Space + drag', 'Pan the board'], ['Mouse mode', 'Middle-drag to pan · wheel to zoom'], ['Touchpad mode', 'Two-finger pan · pinch to zoom'], ['Drag empty space', 'Select multiple cards'], ['Right-click selection', 'Create a group'], ['Delete on a group', 'Remove group, keep its cards'], ['C', 'Connect cards and tune curves'], ['Ctrl / ⌘ K', 'Search locally'], ['Ctrl / ⌘ Z', 'Undo'], ['Ctrl / ⌘ Shift Z', 'Redo'], ['0', 'Fit everything'], ['Enter on a card', 'Open in workbench'], ['Arrow keys on a card', 'Nudge position'], ['Shift F10', 'Card context menu']] as shortcut}<div
           >
             <dt>{shortcut[0]}</dt>
             <dd>{shortcut[1]}</dd>

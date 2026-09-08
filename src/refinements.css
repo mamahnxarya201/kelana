@@ -299,34 +299,104 @@
   outline-offset: 4px;
 }
 .connection-target:hover {
-  outline: 2px solid #a7b5eb;
-  outline-offset: 3px;
+  outline: 1.5px solid #a7b5eb;
+  outline-offset: 2px;
 }
 .connection-port {
   position: absolute;
-  right: 5px;
-  top: calc(50% - 10px);
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   padding: 0;
-  display: grid;
-  place-items: center;
-  background: #fff;
-  border: 1px solid #9aaadd;
-  border-radius: 50%;
+  translate: -50% -50%;
+  border: 0;
+  background: transparent;
   cursor: crosshair;
-  z-index: 4;
+  z-index: 10000;
+}
+.connection-port::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  translate: -50% -50%;
+  border: 1px solid #55544e;
+  border-radius: 50%;
+  background: transparent;
+  transition-property: background-color, border-color, scale;
+  transition-duration: 120ms;
+}
+.connection-port:hover::after,
+.connection-port:focus-visible::after,
+.connection-port.active::after {
+  background: #20201d;
+  border-color: #20201d;
+  scale: 1.15;
+}
+.connection-port.snap-target::after {
+  background: #607ee8;
+  border-color: #607ee8;
+  box-shadow: 0 0 0 4px #607ee826;
+  scale: 1.2;
+}
+.connection-port:focus-visible {
+  outline: 2px solid #607ee8;
+  outline-offset: -3px;
 }
 .connection {
   stroke-linecap: round;
   animation: connection-appear 180ms ease-out;
 }
 .edges .connection-preview {
-  stroke: #7f95df;
+  stroke: #607ee8;
   stroke-width: 1.5;
   stroke-dasharray: 4 4;
   fill: none;
   pointer-events: none;
+}
+.curve-settings {
+  position: absolute;
+  left: 72px;
+  top: 50%;
+  width: 230px;
+  padding: 14px;
+  translate: 0 -50%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: var(--shadow);
+  z-index: 11;
+}
+.curve-settings-title,
+.curve-settings label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.curve-settings-title {
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.curve-settings-title button {
+  padding: 3px 5px;
+  color: #686760;
+  font-size: 11px;
+}
+.curve-settings label {
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+  color: #55544e;
+  font-size: 11px;
+}
+.curve-settings output {
+  color: #77766f;
+  font-variant-numeric: tabular-nums;
+}
+.curve-settings input {
+  width: 100%;
+  accent-color: #607ee8;
 }
 @keyframes connection-appear {
   from {

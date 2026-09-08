@@ -13,7 +13,12 @@ import {
 import { EditorState, EditorSelection } from '@codemirror/state';
 import { markdown } from '@codemirror/lang-markdown';
 import { activeLines, previewDecorations } from './live-markdown';
-import { connectionPath } from './connections';
+import {
+  connectionPath,
+  connectionPoint,
+  nearestConnectionSide,
+  defaultBezierConfig,
+} from './connections';
 test('opening a secondary item always returns it to primary, without duplicating the entity or losing reading state', () => {
   const d = seed();
   const id = 'card:start';
@@ -128,11 +133,21 @@ test('live editor hides Markdown syntax without changing source', () => {
   assert.ok(hidden(state).some((r) => r.from === 0 && r.to === 3));
   assert.equal(state.doc.toString(), text);
 });
-test('bezier anchors stay finite and move continuously across a corner', () => {
-  const a = { x: 0, y: 0, width: 200, height: 200 };
-  const parse = (d: string) => d.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/g)!.map(Number);
-  const before = parse(connectionPath(a, { x: 400, y: 399.99, width: 200, height: 200 }));
-  const after = parse(connectionPath(a, { x: 400, y: 400.01, width: 200, height: 200 }));
-  assert.ok(before.every(Number.isFinite));
-  assert.ok(after.every((n, i) => Math.abs(n - before[i]) < 1));
+test('connections use fixed card-side anchors and settled curve values', () => {
+  assert.deepEqual(defaultBezierConfig, {
+    curvature: 0.35,
+    minControlDistance: 40,
+    maxControlDistance: 150,
+    sourcePull: 1.35,
+    targetPull: 1.65,
+  });
+  const a = { x: 10, y: 20, width: 200, height: 100 };
+  assert.deepEqual(connectionPoint(a, 'top'), { x: 110, y: 20 });
+  assert.deepEqual(connectionPoint(a, 'right'), { x: 210, y: 70 });
+  assert.deepEqual(connectionPoint(a, 'bottom'), { x: 110, y: 120 });
+  assert.deepEqual(connectionPoint(a, 'left'), { x: 10, y: 70 });
+  assert.equal(nearestConnectionSide(a, { x: 108, y: 24 }), 'top');
+  assert.equal(nearestConnectionSide(a, { x: 205, y: 80 }), 'right');
+  const target = { x: 400, y: 200, width: 100, height: 100 };
+  assert.match(connectionPath(a, target, 'right', 'left'), /^M210 70 C/);
 });
