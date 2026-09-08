@@ -10,9 +10,7 @@ import {
   benchSize,
   type Change,
 } from './model';
-import { EditorState, EditorSelection } from '@codemirror/state';
-import { markdown } from '@codemirror/lang-markdown';
-import { activeLines, previewDecorations } from './live-markdown';
+import { titleFromMarkdown } from './markdown';
 import {
   connectionPath,
   connectionPoint,
@@ -110,28 +108,11 @@ test('single and double widths are remembered independently', () => {
   d.panes = closePane(d, 'card:notes');
   assert.equal(benchSize(d), 500);
 });
-test('live editor hides Markdown syntax without changing source', () => {
-  const text = '## Heading\n\nA **bold** thought\n\n- Parent\n  - Child';
-  let state = EditorState.create({
-    doc: text,
-    selection: { anchor: 12 },
-    extensions: [markdown()],
-  });
-  function hidden(s: EditorState) {
-    const ranges: { from: number; to: number }[] = [];
-    previewDecorations(s).between(0, s.doc.length, (from, to, value) => {
-      if (from < to && !value.spec.class) ranges.push({ from, to });
-    });
-    return ranges;
-  }
-  assert.ok(hidden(state).some((r) => r.from === 0 && r.to === 3));
-  assert.ok(hidden(state).some((r) => r.from === 14));
-  state = state.update({ selection: EditorSelection.single(0, 27) }).state;
-  assert.deepEqual([...activeLines(state)], [1, 2, 3]);
-  // Editing must keep the rendered card stable; selecting a line must not
-  // reveal its Markdown markers.
-  assert.ok(hidden(state).some((r) => r.from === 0 && r.to === 3));
-  assert.equal(state.doc.toString(), text);
+test('Markdown titles preserve the existing card naming contract', () => {
+  assert.equal(titleFromMarkdown(''), 'Untitled');
+  assert.equal(titleFromMarkdown('\n\n## Heading\nBody'), 'Heading');
+  assert.equal(titleFromMarkdown('Plain paragraph\nBody'), 'Plain paragraph');
+  assert.equal(titleFromMarkdown('a'.repeat(100)), 'a'.repeat(90));
 });
 test('connections use fixed card-side anchors and settled curve values', () => {
   assert.deepEqual(defaultBezierConfig, {

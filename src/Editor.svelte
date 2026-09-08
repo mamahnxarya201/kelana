@@ -23,22 +23,25 @@
   let editing = $state(false);
   let before = '';
   let position = $state(0);
-  let liveEditor: { focusAt: (position: number) => void; focusAtPoint: (x: number, y: number) => void };
+  let focusFrame = 0;
+  let liveEditor: {
+    focusAt: (position: number) => void;
+    positionAtPoint: (x: number, y: number) => number;
+  };
 
   async function edit(event?: MouseEvent) {
     if (editing) return;
     before = body;
-    position = caret;
+    position = event
+      ? (liveEditor?.positionAtPoint(event.clientX, event.clientY) ?? caret)
+      : caret;
     editing = true;
     onactive(true);
     await tick();
-    // The browser finishes dispatching the click that created/activated the
-    // card after this component mounts. Focus on the next frame so that click
-    // cannot steal the initial caret back from CodeMirror.
-    requestAnimationFrame(() => {
-      if (event) liveEditor?.focusAtPoint(event.clientX, event.clientY);
-      else liveEditor?.focusAt(position);
-    });
+    // Let Tiptap apply its editable state before restoring the selection.
+    // Keeping this to one frame avoids timing-dependent focus timeouts.
+    cancelAnimationFrame(focusFrame);
+    focusFrame = requestAnimationFrame(() => liveEditor?.focusAt(position));
   }
   function finish() {
     if (!editing) return;
@@ -50,6 +53,7 @@
     if (active && !editing) edit();
   });
   onDestroy(() => {
+    cancelAnimationFrame(focusFrame);
     if (editing) oncommit(before);
   });
 </script>

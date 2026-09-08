@@ -234,6 +234,10 @@
 .board-card.editing .editable {
   cursor: text;
 }
+.board-card.editing .open-card {
+  opacity: 0;
+  pointer-events: none;
+}
 .board-card.selected {
   outline: 1.5px solid #8399ea;
   outline-offset: 1px;
@@ -432,122 +436,36 @@
   color: #77766f;
 }
 .live-editor {
-  font: inherit;
   min-height: 70px;
+  font: inherit;
+}
+.live-editor .ProseMirror {
+  min-height: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  outline: 0;
+  caret-color: #242422;
+}
+.live-editor:not(.editing) .ProseMirror {
+  cursor: default;
+  user-select: none;
+}
+.live-editor.editing .ProseMirror {
   cursor: text;
   user-select: text;
 }
-.live-editor .cm-content {
-  white-space: pre-wrap !important;
-  overflow-wrap: anywhere;
+.live-editor .ProseMirror ::selection {
+  background: #4d6fff26;
 }
-/* Editor line metrics mirror the rendered Markdown preview exactly so
-   entering and leaving edit mode never moves the text. Headings share the
-   preview's size, weight, line-height, letter-spacing, and margins. */
-.live-editor .cm-line.md-h1 {
-  font-size: 28px;
-  font-weight: 700;
-  line-height: 1.25;
-  letter-spacing: -0.6px;
-  margin: 0.67em 0;
+.live-editor .ProseMirror li > p {
+  margin: 0;
 }
-.live-editor .cm-line.md-h2 {
-  font-size: 24px;
-  font-weight: 600;
-  line-height: 1.32;
-  letter-spacing: -0.5px;
-  margin: 0 0 17px;
+.live-editor .ProseMirror pre code {
+  padding: 0;
+  background: transparent;
 }
-.live-editor .cm-line.md-h3 {
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1.35;
-  margin: 1em 0;
-}
-.live-editor .cm-line.md-h4,
-.live-editor .cm-line.md-h5,
-.live-editor .cm-line.md-h6 {
-  font-weight: 700;
-}
-.live-editor .cm-line.md-para-end {
-  margin-bottom: 14px;
-}
-.live-editor .cm-line.md-blank {
-  height: 0;
-  min-height: 0;
-  line-height: 0;
-  overflow: hidden;
-}
-.live-editor .cm-line.md-li-start {
-  margin-top: 5px;
-}
-.live-editor .cm-line.md-li-end {
-  margin-bottom: 5px;
-}
-.live-editor .cm-line.md-quote-end {
-  margin-bottom: 18px;
-}
-.live-editor .cm-line.md-first:not(.md-li-start) {
-  margin-top: 0 !important;
-}
-.live-editor .cm-line.md-last:not(.md-li-end) {
-  margin-bottom: 0 !important;
-}
-.board-card .cm-line.md-h1 {
-  font-size: 25px;
-}
-.board-card .cm-line.md-h2 {
-  font-size: 20px;
-}
-.board-card .cm-line.md-h3 {
-  font-size: 18px;
-}
-.md-strong {
-  font-weight: 600;
-}
-.md-em {
-  font-style: italic;
-}
-.md-strike {
-  text-decoration: line-through;
-}
-.md-link {
-  color: #4d6fff;
-  text-decoration: underline;
-  text-decoration-color: #4d6fff50;
-  text-underline-offset: 3px;
-}
-.md-inline-code,
-.md-code-line {
-  background: #00000005;
-}
-.md-bullet {
-  display: inline-block;
-  min-width: 0.55em;
-  text-align: center;
-  color: #77766f;
-}
-.cm-line.md-list-line {
-  /* 21px per level like the preview's list padding, minus the bullet
-     widget width, so text lands where the rendered list puts it. */
-  padding-left: calc(21px * var(--list-depth, 1) - 7px);
-  background-image: linear-gradient(#d9d7d070, #d9d7d070);
-  background-size: 1px calc(100% - 1.4em);
-  background-position: calc((var(--list-depth, 1) - 1) * 1.2em + 0.2em) bottom;
-  background-repeat: no-repeat;
-}
-.cm-line.md-quote-line {
-  border-left: 2px solid #a6924d;
-  padding-left: 14px !important;
-}
-.live-editor .cm-cursor {
-  border-left: 1.5px solid #333;
-}
-.live-editor .cm-focused {
+.live-editor .ProseMirror-focused {
   outline: 0;
-}
-.cm-line {
-  transition: none !important;
 }
 .pdf-flow {
   padding: 18px 14px 0;

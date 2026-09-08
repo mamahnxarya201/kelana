@@ -46,8 +46,8 @@
     type ConnectionSide,
   } from './lib/model';
   import { loadDoc, saveDoc, saveAsset, loadPdfText, savePdfText } from './lib/storage';
+  import { titleFromMarkdown } from './lib/markdown';
   import { acquirePdf, releasePdf } from './lib/pdf';
-  import Markdown from './Markdown.svelte';
   import Editor from './Editor.svelte';
   import AssetImage from './AssetImage.svelte';
   import Workbench from './Workbench.svelte';
@@ -424,12 +424,7 @@
   function edit(id: string, body: string) {
     const e = doc.entities[id];
     e.body = body;
-    e.title =
-      body
-        .split('\n')
-        .find((l) => l.trim())
-        ?.replace(/^#+\s*/, '')
-        .slice(0, 90) || 'Untitled';
+    e.title = titleFromMarkdown(body);
     updateSearch();
     persist();
   }
@@ -444,12 +439,7 @@
           before: {
             ...$state.snapshot(e),
             body: before,
-            title:
-              before
-                .split('\n')
-                .find((l) => l.trim())
-                ?.replace(/^#+\s*/, '')
-                .slice(0, 90) || 'Untitled',
+            title: titleFromMarkdown(before),
           },
           after: $state.snapshot(e),
         },

@@ -1,10 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Compartment, EditorState, Transaction } from '@codemirror/state';
-  import { EditorView, keymap, drawSelection } from '@codemirror/view';
-  import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-  import { markdown, markdownKeymap } from '@codemirror/lang-markdown';
-  import { liveMarkdown } from './lib/live-markdown';
+  import { Editor, Extension } from '@tiptap/core';
+  import StarterKit from '@tiptap/starter-kit';
+  import { Markdown } from '@tiptap/markdown';
+
   let {
     body,
     editing = true,
@@ -20,109 +19,144 @@
     onfinish: () => void;
     oncaret?: (pos: number) => void;
   } = $props();
+
   let host: HTMLDivElement;
-  let editor: EditorView | undefined;
-  let fromOutside = false;
-  const readOnly = new Compartment();
-  const editable = new Compartment();
+  let editor: Editor | undefined;
+  let applyingExternal = false;
+  let lastEmitted = '';
+  let pendingExternal: string | null = null;
+  let composing = false;
+  let finishAfterComposition = false;
+
+  function editablePosition(position: number) {
+    if (!editor) return 1;
+    return Math.max(1, Math.min(position || 1, Math.max(1, editor.state.doc.content.size - 1)));
+  }
 
   export function focusAt(position: number) {
     if (!editor) return;
-    const anchor = Math.max(0, Math.min(position, editor.state.doc.length));
-    editor.dispatch({ selection: { anchor }, scrollIntoView: true });
-    editor.focus();
+    editor.commands.focus();
+    editor.commands.setTextSelection(editablePosition(position));
+    editor.commands.scrollIntoView();
   }
-  export function focusAtPoint(x: number, y: number) {
+
+  export function positionAtPoint(x: number, y: number) {
+    if (!editor) return 1;
+    return editor.view.posAtCoords({ left: x, top: y })?.pos ?? editablePosition(caret);
+  }
+
+  function applyExternal(markdown: string) {
     if (!editor) return;
-    const position = editor.posAtCoords({ x, y });
-    focusAt(position ?? Math.min(caret, editor.state.doc.length));
+    if (composing || editor.view.composing) {
+      pendingExternal = markdown;
+      return;
+    }
+    const position = editor.state.selection.from;
+    const focused = editor.isFocused;
+    applyingExternal = true;
+    editor.commands.setContent(markdown, {
+      contentType: 'markdown',
+      emitUpdate: false,
+    });
+    editor.commands.setTextSelection(editablePosition(position));
+    if (focused) editor.commands.focus();
+    applyingExternal = false;
+  }
+
+  function finishEditing() {
+    if (composing || editor?.view.composing) {
+      finishAfterComposition = true;
+      return;
+    }
+    onfinish();
   }
 
   onMount(() => {
-    editor = new EditorView({
-      parent: host,
-      state: EditorState.create({
-        doc: body,
-        selection: { anchor: Math.min(caret, body.length) },
-        extensions: [
-          markdown(),
-          history(),
-          drawSelection(),
-          EditorView.lineWrapping,
-          liveMarkdown,
-          readOnly.of(EditorState.readOnly.of(!editing)),
-          editable.of(EditorView.editable.of(editing)),
-          EditorView.contentAttributes.of({ 'aria-label': 'Edit Markdown', spellcheck: 'true' }),
-          keymap.of([
-            {
-              key: 'Escape',
-              run: () => {
-                if (!editing) return false;
-                onfinish();
-                return true;
-              },
-            },
-            ...markdownKeymap,
-            ...defaultKeymap,
-            ...historyKeymap,
-          ]),
-          EditorView.updateListener.of((update) => {
-            if (update.docChanged && !fromOutside) oninput(update.state.doc.toString());
-            if (update.selectionSet) oncaret(update.state.selection.main.head);
-          }),
-          EditorView.domEventHandlers({
-            blur: () => {
-              if (!editing) return;
-              queueMicrotask(() => {
-                if (editor && !editor.hasFocus) onfinish();
-              });
-            },
-          }),
-          EditorView.theme({
-            '&': { fontSize: '16px', backgroundColor: 'transparent' },
-            '.cm-content': {
-              fontFamily: 'inherit',
-              padding: '0',
-              caretColor: '#242422',
-            },
-            '.cm-line': { padding: '0', lineHeight: '1.6' },
-            '.cm-scroller': { fontFamily: 'inherit', overflow: 'visible' },
-            '&.cm-focused': { outline: 'none' },
-            '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
-              backgroundColor: '#4d6fff26',
-            },
-          }),
-        ],
-      }),
+    const EscapeToFinish = Extension.create({
+      name: 'escapeToFinish',
+      addKeyboardShortcuts() {
+        return {
+          Escape: () => {
+            if (!editing) return false;
+            finishEditing();
+            return true;
+          },
+        };
+      },
     });
-    if (editing) requestAnimationFrame(() => focusAt(caret));
+
+    editor = new Editor({
+      element: host,
+      editable: editing,
+      content: body,
+      contentType: 'markdown',
+      extensions: [
+        StarterKit,
+        Markdown.configure({ markedOptions: { gfm: true, breaks: false } }),
+        EscapeToFinish,
+      ],
+      editorProps: {
+        attributes: {
+          class: 'markdown',
+          'aria-label': 'Edit Markdown',
+          'aria-multiline': 'true',
+          spellcheck: 'true',
+        },
+        handleDOMEvents: {
+          compositionstart: () => {
+            composing = true;
+            return false;
+          },
+          compositionend: () => {
+            composing = false;
+            queueMicrotask(() => {
+              if (pendingExternal !== null) {
+                const next = pendingExternal;
+                pendingExternal = null;
+                applyExternal(next);
+              }
+              if (finishAfterComposition) {
+                finishAfterComposition = false;
+                onfinish();
+              }
+            });
+            return false;
+          },
+          blur: () => {
+            queueMicrotask(() => {
+              if (editing && editor && !editor.isFocused) finishEditing();
+            });
+            return false;
+          },
+        },
+      },
+      onUpdate: ({ editor: current, transaction }) => {
+        if (applyingExternal || !transaction.docChanged) return;
+        const markdown = current.getMarkdown();
+        lastEmitted = markdown;
+        oninput(markdown);
+      },
+      onSelectionUpdate: ({ editor: current }) => {
+        oncaret(current.state.selection.from);
+      },
+    });
+
     return () => {
       editor?.destroy();
       editor = undefined;
     };
   });
+
   $effect(() => {
     const enabled = editing;
-    if (!editor) return;
-    editor.dispatch({
-      effects: [
-        readOnly.reconfigure(EditorState.readOnly.of(!enabled)),
-        editable.reconfigure(EditorView.editable.of(enabled)),
-      ],
-    });
+    if (editor && editor.isEditable !== enabled) editor.setEditable(enabled);
   });
+
   $effect(() => {
     const next = body;
-    if (editor && editor.state.doc.toString() !== next) {
-      fromOutside = true;
-      const anchor = Math.min(editor.state.selection.main.head, next.length);
-      editor.dispatch({
-        changes: { from: 0, to: editor.state.doc.length, insert: next },
-        selection: { anchor },
-        annotations: Transaction.addToHistory.of(false),
-      });
-      fromOutside = false;
-    }
+    if (!editor || next === lastEmitted) return;
+    const current = editor.getMarkdown();
+    if (next !== current) applyExternal(next);
   });
 </script>
 
