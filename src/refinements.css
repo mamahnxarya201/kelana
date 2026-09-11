@@ -318,6 +318,7 @@
 }
 .board-card.free-text .live-editor {
   width: 100%;
+  min-height: 0;
   padding: 3px 4px;
   font-size: 18px;
   line-height: 1.35;
@@ -326,6 +327,29 @@
 }
 .board-card.free-text .live-editor .ProseMirror {
   outline: none;
+}
+.board-card.free-text .live-editor .markdown {
+  font-size: 18px;
+  line-height: 1.35;
+}
+.board-card.free-text .live-editor .markdown p,
+.board-card.free-text .live-editor .markdown ul,
+.board-card.free-text .live-editor .markdown ol {
+  margin: 0;
+}
+.board-card.free-text .live-editor .markdown h1,
+.board-card.free-text .live-editor .markdown h2,
+.board-card.free-text .live-editor .markdown h3,
+.board-card.free-text .live-editor .markdown h4,
+.board-card.free-text .live-editor .markdown h5,
+.board-card.free-text .live-editor .markdown h6 {
+  margin: 0.4em 0 0.2em;
+}
+.board-card.free-text .live-editor .markdown :first-child {
+  margin-top: 0;
+}
+.board-card.free-text .live-editor .markdown :last-child {
+  margin-bottom: 0;
 }
 .board-card.free-text .live-editor a {
   pointer-events: auto;

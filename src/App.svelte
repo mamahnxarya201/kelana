@@ -524,6 +524,9 @@
     host.style.width = '';
     return width;
   }
+  function freeTextNaturalHeight(host: HTMLElement) {
+    return freeTextHeightAt(host, freeTextNaturalWidth(host));
+  }
   function freeTextWidthForHeight(host: HTMLElement, height: number) {
     const max = Math.max(FREE_TEXT_MIN_WIDTH, freeTextNaturalWidth(host));
     if (max <= FREE_TEXT_MIN_WIDTH || freeTextHeightAt(host, max) > height) return max;
@@ -551,7 +554,12 @@
         freeTextHeightAt(host, placement.width),
       );
     } else if (lock === 'height') {
-      placement.height = Math.max(FREE_TEXT_MIN_HEIGHT, Math.ceil(opts.height ?? placement.height));
+      // Height is clamped between one line and the text's natural one-line height.
+      const naturalHeight = freeTextNaturalHeight(host);
+      placement.height = Math.max(
+        FREE_TEXT_MIN_HEIGHT,
+        Math.min(naturalHeight, Math.ceil(opts.height ?? placement.height)),
+      );
       placement.width = Math.max(
         FREE_TEXT_MIN_WIDTH,
         Math.min(2000, freeTextWidthForHeight(host, placement.height)),
@@ -918,9 +926,17 @@
           }
           next.height = Math.max(FREE_TEXT_MIN_HEIGHT, freeTextHeightAt(freeHost, next.width));
         } else {
-          if (direction.includes('s')) next.height = Math.max(FREE_TEXT_MIN_HEIGHT, before.height + dy);
+          const naturalHeight = freeTextNaturalHeight(freeHost);
+          if (direction.includes('s'))
+            next.height = Math.max(
+              FREE_TEXT_MIN_HEIGHT,
+              Math.min(naturalHeight, before.height + dy),
+            );
           if (direction.includes('n')) {
-            next.height = Math.max(FREE_TEXT_MIN_HEIGHT, before.height - dy);
+            next.height = Math.max(
+              FREE_TEXT_MIN_HEIGHT,
+              Math.min(naturalHeight, before.height - dy),
+            );
             next.y = before.y + before.height - next.height;
           }
           next.width = Math.max(minimumWidth, freeTextWidthForHeight(freeHost, next.height));
