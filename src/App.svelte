@@ -1172,14 +1172,17 @@
     const onhide = () => {
       if (document.visibilityState === 'hidden') flush();
     };
+    const onPageHide = () => flush();
     document.addEventListener('visibilitychange', onhide);
+    window.addEventListener('pagehide', onPageHide);
     return () => {
       alive = false;
+      flush();
       observer.disconnect();
       worker.terminate();
       board.removeEventListener('wheel', wheel);
       document.removeEventListener('visibilitychange', onhide);
-      clearTimeout(saveTimer);
+      window.removeEventListener('pagehide', onPageHide);
       clearTimeout(notificationTimer);
     };
   });

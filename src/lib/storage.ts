@@ -1,16 +1,44 @@
 import type { Doc, Asset } from './model';
-let database: Promise<IDBDatabase>;
+let database: Promise<IDBDatabase> | undefined;
 function db() {
-  return (database ??= new Promise((resolve, reject) => {
+  if (database) return database;
+  let opening: Promise<IDBDatabase>;
+  opening = new Promise((resolve, reject) => {
     const r = indexedDB.open('kelana-local', 2);
     r.onupgradeneeded = () => {
       for (const name of ['documents', 'assets', 'blobs', 'search'])
         if (!r.result.objectStoreNames.contains(name)) r.result.createObjectStore(name);
     };
-    r.onsuccess = () => resolve(r.result);
+    r.onsuccess = () => {
+      const connection = r.result;
+      connection.onversionchange = () => {
+        connection.close();
+        if (database === opening) database = undefined;
+      };
+      connection.onclose = () => {
+        if (database === opening) database = undefined;
+      };
+      resolve(connection);
+    };
     r.onerror = () => reject(r.error);
-  }));
+  });
+  database = opening;
+  void opening.catch(() => {
+    if (database === opening) database = undefined;
+  });
+  return opening;
 }
+export async function closeDatabase() {
+  const opening = database;
+  database = undefined;
+  if (!opening) return;
+  try {
+    (await opening).close();
+  } catch {
+    // A failed or already-closing connection needs no further cleanup.
+  }
+}
+if (import.meta.hot) import.meta.hot.dispose(() => void closeDatabase());
 async function get<T>(store: string, key: string): Promise<T | undefined> {
   const d = await db();
   return new Promise((resolve, reject) => {
