@@ -328,6 +328,23 @@ main {
   font-weight: 600;
   margin: 1em 0;
 }
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  line-height: 1.4;
+  font-weight: 600;
+  margin: 1em 0 0.65em;
+}
+.markdown h4 {
+  font-size: 16px;
+}
+.markdown h5 {
+  font-size: 14px;
+}
+.markdown h6 {
+  color: var(--muted);
+  font-size: 13px;
+}
 .markdown p {
   margin: 0 0 14px;
 }
@@ -342,6 +359,23 @@ main {
 }
 .markdown a {
   color: #4262df;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.markdown img {
+  display: inline-block;
+  max-width: 100%;
+  height: auto;
+  margin: 8px 0;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+.markdown hr {
+  height: 0;
+  margin: 20px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
 }
 .markdown code {
   font: inherit;

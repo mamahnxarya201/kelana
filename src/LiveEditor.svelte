@@ -2,7 +2,9 @@
   import { onMount } from 'svelte';
   import { Editor, Extension } from '@tiptap/core';
   import StarterKit from '@tiptap/starter-kit';
+  import Image from '@tiptap/extension-image';
   import { Markdown } from '@tiptap/markdown';
+  import { MarkdownEscape, MarkdownSyntax } from './lib/markdown-syntax';
 
   let {
     body,
@@ -91,7 +93,16 @@
       content: body,
       contentType: 'markdown',
       extensions: [
-        StarterKit,
+        StarterKit.configure({
+          link: { markdownLinks: true },
+        }),
+        Image.configure({
+          inline: true,
+          allowBase64: false,
+          HTMLAttributes: { loading: 'lazy', referrerpolicy: 'no-referrer' },
+        }),
+        MarkdownEscape,
+        MarkdownSyntax,
         Markdown.configure({ markedOptions: { gfm: true, breaks: false } }),
         EscapeToFinish,
       ],
