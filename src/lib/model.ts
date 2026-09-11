@@ -10,7 +10,7 @@ export type Anchor = {
 };
 export type Entity = {
   id: string;
-  type: 'markdown' | 'pdf' | 'image' | 'annotation';
+  type: 'markdown' | 'pdf' | 'image' | 'annotation' | 'text';
   title: string;
   body: string;
   color: string;
@@ -23,6 +23,9 @@ export type Placement = Point & {
   width: number;
   height: number;
   z: number;
+  autoWidth?: boolean;
+  /** For free text: which dimension the user fixed; the other auto-fits the content. */
+  locked?: 'width' | 'height';
 };
 export type Pane = {
   entityId: string;
@@ -37,13 +40,7 @@ export type Pane = {
   folded?: boolean;
 };
 export type ConnectionSide = 'top' | 'right' | 'bottom' | 'left';
-export type FontId =
-  | 'inter'
-  | 'source-sans'
-  | 'source-serif'
-  | 'lora'
-  | 'stix-two'
-  | 'libertinus';
+export type FontId = 'inter' | 'source-sans' | 'source-serif' | 'lora' | 'stix-two' | 'libertinus';
 export type Edge = {
   id: string;
   from: string;

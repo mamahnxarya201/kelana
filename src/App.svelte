@@ -25,6 +25,7 @@
     Highlighter,
     Mouse,
     Laptop,
+    Type,
   } from 'lucide-svelte';
   import {
     seed,
@@ -52,6 +53,7 @@
   import { fontFamily, fontOptions } from './lib/fonts';
   import { acquirePdf, releasePdf } from './lib/pdf';
   import Editor from './Editor.svelte';
+  import LiveEditor from './LiveEditor.svelte';
   import AssetImage from './AssetImage.svelte';
   import Workbench from './Workbench.svelte';
   import {
@@ -79,6 +81,7 @@
   let groupMenu = $state<{ id: string; x: number; y: number } | null>(null);
   let focused = $state('');
   let editingBoard = $state('');
+  let textEditBefore: { id: string; entity: Entity; placement: Placement } | null = null;
   let resizing = $state(false);
   let cursorWorld = $state<Point>({ x: 0, y: 0 });
   const edgeNodes = new Map<string, SVGPathElement>();
@@ -115,7 +118,8 @@
   const whiteboardFont = $derived(doc.whiteboardFont ?? 'inter');
   const interfaceFont = $derived(doc.interfaceFont ?? 'inter');
   const appearanceMatches = $derived(
-    !settingsQuery.trim() || 'appearance font typography'.includes(settingsQuery.trim().toLowerCase()),
+    !settingsQuery.trim() ||
+      'appearance font typography'.includes(settingsQuery.trim().toLowerCase()),
   );
   const grid = $derived(new SpatialGrid(doc.placements));
   const visible = $derived(
@@ -142,7 +146,10 @@
     persist();
   }
   function stabilizeConnectionSides(value: Doc): Doc {
-    const placements = new Map(value.placements.map((placement) => [placement.entityId, placement]));
+    value.panes = value.panes.filter((pane) => value.entities[pane.entityId]?.type !== 'text');
+    const placements = new Map(
+      value.placements.map((placement) => [placement.entityId, placement]),
+    );
     for (const edge of value.edges) {
       if (edge.fromSide && edge.toSide) continue;
       const from = placements.get(edge.from);
@@ -215,6 +222,7 @@
     persist();
   }
   function record(changes: Change[]) {
+    if (!changes.length) return;
     undoStack.push(changes);
     redoStack = [];
     persist();
@@ -241,6 +249,10 @@
     ] as Change[];
   }
   async function open(id: string) {
+    if (doc.entities[id]?.type === 'text') {
+      revealOnBoard(id);
+      return;
+    }
     focused = id;
     selected = '';
     selectedIds = [];
@@ -280,13 +292,15 @@
     };
   }
   function place(entityId: string, point = centerPoint()) {
+    const type = doc.entities[entityId]?.type;
     const p: Placement = {
       id: uid('placement'),
       entityId,
       ...point,
-      width: 290,
-      height: doc.entities[entityId]?.type === 'image' ? 240 : 250,
+      width: type === 'text' ? 88 : 290,
+      height: type === 'text' ? 30 : type === 'image' ? 240 : 250,
       z: Math.max(0, ...doc.placements.map((p) => p.z)) + 1,
+      ...(type === 'text' ? { autoWidth: true } : {}),
     };
     return p;
   }
@@ -304,6 +318,30 @@
     selectOnly(id);
     editingBoard = id;
     tool = 'select';
+  }
+  async function addFreeText(point?: Point) {
+    const id = uid('text');
+    const entity: Entity = {
+      id,
+      type: 'text',
+      title: 'New Text',
+      body: 'New Text',
+      color: 'white',
+    };
+    const placement = place(
+      id,
+      point ?? {
+        x: (boardWidth / 2 - doc.camera.x) / doc.camera.zoom - 44,
+        y: (boardHeight / 2 - doc.camera.y) / doc.camera.zoom - 15,
+      },
+    );
+    commit([
+      { collection: 'entities', id, before: undefined, after: entity },
+      { collection: 'placements', id: placement.id, before: undefined, after: placement },
+    ]);
+    selectOnly(id);
+    tool = 'select';
+    await beginFreeTextEdit(id, true);
   }
   async function importFiles(files: File[], point = centerPoint()) {
     for (const [i, file] of files.entries()) {
@@ -390,6 +428,11 @@
       newId = uid(e.type);
     const p = doc.placements.find((p) => p.entityId === id);
     const placement = place(newId, p ? { x: p.x + 35, y: p.y + 35 } : centerPoint());
+    if (e.type === 'text' && p) {
+      placement.width = p.width;
+      placement.height = p.height;
+      placement.autoWidth = p.autoWidth;
+    }
     commit([
       {
         collection: 'entities',
@@ -404,6 +447,19 @@
     const changes: Change[] = [
       { collection: 'entities', id, before: $state.snapshot(doc.entities[id]), after: undefined },
     ];
+    const groups = $state.snapshot(doc.groups ?? []);
+    if (groups.some((group) => group.entityIds.includes(id)))
+      changes.push({
+        collection: 'document',
+        id: 'groups',
+        before: groups,
+        after: groups
+          .map((group) => ({
+            ...group,
+            entityIds: group.entityIds.filter((entityId) => entityId !== id),
+          }))
+          .filter((group) => group.entityIds.length),
+      });
     for (const p of doc.placements.filter((p) => p.entityId === id))
       changes.push({
         collection: 'placements',
@@ -445,6 +501,138 @@
     e.title = titleFromMarkdown(body);
     updateSearch();
     persist();
+  }
+  function freeTextTitle(body: string) {
+    return titleFromMarkdown(body);
+  }
+  // --- free-text sizing: one dimension is "locked" by the user, the other auto-fits the text ---
+  const FREE_TEXT_MIN_WIDTH = 40;
+  const FREE_TEXT_MIN_HEIGHT = 24;
+  const FREE_TEXT_MAX_WIDTH = 720;
+  function freeTextHost(id: string) {
+    return board.querySelector<HTMLElement>(`[data-entity="${id}"] .live-editor`);
+  }
+  function freeTextHeightAt(host: HTMLElement, width: number) {
+    host.style.width = `${Math.ceil(width)}px`;
+    const height = host.scrollHeight;
+    host.style.width = '';
+    return height;
+  }
+  function freeTextNaturalWidth(host: HTMLElement) {
+    host.style.width = 'max-content';
+    const width = host.scrollWidth;
+    host.style.width = '';
+    return width;
+  }
+  function freeTextWidthForHeight(host: HTMLElement, height: number) {
+    const max = Math.max(FREE_TEXT_MIN_WIDTH, freeTextNaturalWidth(host));
+    if (max <= FREE_TEXT_MIN_WIDTH || freeTextHeightAt(host, max) > height) return max;
+    let lo = FREE_TEXT_MIN_WIDTH;
+    let hi = max;
+    while (hi - lo > 2) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (freeTextHeightAt(host, mid) <= height) hi = mid;
+      else lo = mid;
+    }
+    return hi;
+  }
+  function fitFreeText(
+    id: string,
+    opts: { lock?: 'width' | 'height'; width?: number; height?: number } = {},
+  ) {
+    const placement = placementsByEntity.get(id);
+    const host = freeTextHost(id);
+    if (!placement || !host) return;
+    const lock = opts.lock ?? placement.locked ?? (placement.autoWidth === false ? 'width' : undefined);
+    if (lock === 'width') {
+      placement.width = Math.max(FREE_TEXT_MIN_WIDTH, Math.ceil(opts.width ?? placement.width));
+      placement.height = Math.max(
+        FREE_TEXT_MIN_HEIGHT,
+        freeTextHeightAt(host, placement.width),
+      );
+    } else if (lock === 'height') {
+      placement.height = Math.max(FREE_TEXT_MIN_HEIGHT, Math.ceil(opts.height ?? placement.height));
+      placement.width = Math.max(
+        FREE_TEXT_MIN_WIDTH,
+        Math.min(2000, freeTextWidthForHeight(host, placement.height)),
+      );
+    } else {
+      const natural = freeTextNaturalWidth(host);
+      placement.width = Math.max(FREE_TEXT_MIN_WIDTH, Math.min(natural, FREE_TEXT_MAX_WIDTH));
+      placement.height = Math.max(
+        FREE_TEXT_MIN_HEIGHT,
+        freeTextHeightAt(host, placement.width),
+      );
+    }
+    refreshEdges(id, placement);
+    refreshPorts(id, placement);
+  }
+  async function beginFreeTextEdit(id: string, selectAll = false) {
+    const entity = doc.entities[id];
+    const placement = placementsByEntity.get(id);
+    if (!entity || entity.type !== 'text' || !placement) return;
+    textEditBefore = {
+      id,
+      entity: $state.snapshot(entity),
+      placement: $state.snapshot(placement),
+    };
+    editingBoard = id;
+    selectOnly(id);
+    focused = '';
+    await tick();
+    const host = freeTextHost(id);
+    if (!host) return;
+    fitFreeText(id);
+    const surface = host.querySelector<HTMLElement>('.ProseMirror');
+    if (!surface) return;
+    surface.focus();
+    if (selectAll) {
+      const range = document.createRange();
+      range.selectNodeContents(surface);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
+  }
+  function editFreeText(id: string, body: string) {
+    const entity = doc.entities[id];
+    if (!entity || entity.type !== 'text') return;
+    entity.body = body;
+    entity.title = freeTextTitle(body);
+    fitFreeText(id);
+    updateSearch();
+    persist();
+  }
+  function finishFreeTextEdit(id: string) {
+    if (editingBoard === id) editingBoard = '';
+    if (!textEditBefore || textEditBefore.id !== id) return;
+    const before = textEditBefore;
+    textEditBefore = null;
+    const entity = doc.entities[id];
+    const placement = placementsByEntity.get(id);
+    if (!entity || !placement) return;
+    const changes: Change[] = [];
+    if (before.entity.body !== entity.body || before.entity.title !== entity.title)
+      changes.push({
+        collection: 'entities',
+        id,
+        before: before.entity,
+        after: $state.snapshot(entity),
+      });
+    if (
+      before.placement.x !== placement.x ||
+      before.placement.y !== placement.y ||
+      before.placement.width !== placement.width ||
+      before.placement.height !== placement.height ||
+      before.placement.locked !== placement.locked
+    )
+      changes.push({
+        collection: 'placements',
+        id: placement.id,
+        before: before.placement,
+        after: $state.snapshot(placement),
+      });
+    record(changes);
   }
   function editCommit(id: string, before: string) {
     const e = doc.entities[id];
@@ -518,6 +706,16 @@
     connecting = null;
     snapTarget = null;
   }
+  function revealOnBoard(id: string) {
+    const placement = placementsByEntity.get(id);
+    if (!placement) return;
+    editingBoard = '';
+    selectOnly(id);
+    focused = '';
+    doc.camera.x = boardWidth / 2 - (placement.x + placement.width / 2) * doc.camera.zoom;
+    doc.camera.y = boardHeight / 2 - (placement.y + placement.height / 2) * doc.camera.zoom;
+    persist();
+  }
   function point(event: { clientX: number; clientY: number }) {
     const r = board.getBoundingClientRect();
     return {
@@ -586,7 +784,9 @@
       group.height !== undefined
     )
       return { x: group.x, y: group.y, width: group.width, height: group.height };
-    const members = doc.placements.filter((placement) => group.entityIds.includes(placement.entityId));
+    const members = doc.placements.filter((placement) =>
+      group.entityIds.includes(placement.entityId),
+    );
     if (!members.length) return null;
     const padding = 24;
     const minX = Math.min(...members.map((member) => member.x)) - padding;
@@ -629,7 +829,7 @@
     commit([{ collection: 'document', id: 'groups', before, after }]);
     selectedGroup = '';
     groupMenu = null;
-    notify('Group removed. Its cards are unchanged.');
+    notify('Group removed. Its items are unchanged.');
   }
   function resizeGroup(
     event: PointerEvent,
@@ -692,6 +892,10 @@
     const handle = event.currentTarget as HTMLElement;
     const card = handle.closest<HTMLElement>('.board-card');
     if (!card) return;
+    const isFreeText = doc.entities[placement.entityId]?.type === 'text';
+    const freeTextLock: 'width' | 'height' =
+      direction.includes('e') || direction.includes('w') ? 'width' : 'height';
+    const freeHost = isFreeText ? freeTextHost(placement.entityId) : null;
     const start = { x: event.clientX, y: event.clientY };
     const before = $state.snapshot(placement);
     let next = { ...before };
@@ -699,16 +903,39 @@
     const movement = (moveEvent: PointerEvent) => {
       const dx = (moveEvent.clientX - start.x) / doc.camera.zoom;
       const dy = (moveEvent.clientY - start.y) / doc.camera.zoom;
-      next = { ...before };
-      if (direction.includes('e')) next.width = Math.max(120, before.width + dx);
-      if (direction.includes('s')) next.height = Math.max(80, before.height + dy);
-      if (direction.includes('w')) {
-        next.width = Math.max(120, before.width - dx);
-        next.x = before.x + before.width - next.width;
-      }
-      if (direction.includes('n')) {
-        next.height = Math.max(80, before.height - dy);
-        next.y = before.y + before.height - next.height;
+      const minimumWidth = isFreeText ? FREE_TEXT_MIN_WIDTH : 120;
+      next = {
+        ...before,
+        ...(isFreeText ? { locked: freeTextLock, autoWidth: undefined } : {}),
+      };
+      if (isFreeText && freeHost) {
+        // The dragged dimension is locked by the user; the other one auto-fits the text.
+        if (freeTextLock === 'width') {
+          if (direction.includes('e')) next.width = Math.max(minimumWidth, before.width + dx);
+          if (direction.includes('w')) {
+            next.width = Math.max(minimumWidth, before.width - dx);
+            next.x = before.x + before.width - next.width;
+          }
+          next.height = Math.max(FREE_TEXT_MIN_HEIGHT, freeTextHeightAt(freeHost, next.width));
+        } else {
+          if (direction.includes('s')) next.height = Math.max(FREE_TEXT_MIN_HEIGHT, before.height + dy);
+          if (direction.includes('n')) {
+            next.height = Math.max(FREE_TEXT_MIN_HEIGHT, before.height - dy);
+            next.y = before.y + before.height - next.height;
+          }
+          next.width = Math.max(minimumWidth, freeTextWidthForHeight(freeHost, next.height));
+        }
+      } else {
+        if (direction.includes('e')) next.width = Math.max(minimumWidth, before.width + dx);
+        if (!isFreeText && direction.includes('s')) next.height = Math.max(80, before.height + dy);
+        if (direction.includes('w')) {
+          next.width = Math.max(minimumWidth, before.width - dx);
+          next.x = before.x + before.width - next.width;
+        }
+        if (!isFreeText && direction.includes('n')) {
+          next.height = Math.max(80, before.height - dy);
+          next.y = before.y + before.height - next.height;
+        }
       }
       card.style.transform = `translate(${next.x}px,${next.y}px)`;
       card.style.width = `${next.width}px`;
@@ -724,7 +951,8 @@
         next.x !== before.x ||
         next.y !== before.y ||
         next.width !== before.width ||
-        next.height !== before.height
+        next.height !== before.height ||
+        next.locked !== before.locked
       )
         commit([{ collection: 'placements', id: placement.id, before, after: next }]);
     };
@@ -817,7 +1045,11 @@
       pan(event);
       return;
     }
-    if ((event.target as HTMLElement).closest('.board-card,.toolbar,.zoom-controls,.navigation-controls,.group-label,.floating-menu,.curve-settings'))
+    if (
+      (event.target as HTMLElement).closest(
+        '.board-card,.toolbar,.zoom-controls,.navigation-controls,.group-label,.floating-menu,.curve-settings',
+      )
+    )
       return;
     if (connecting) {
       connecting = null;
@@ -835,7 +1067,7 @@
       event.button !== 0
     )
       return;
-    if (event.detail > 1) return;
+    if (event.detail > 1 && doc.entities[p.entityId]?.type !== 'text') return;
     event.stopPropagation();
     if (connecting) {
       event.preventDefault();
@@ -892,7 +1124,13 @@
     const middleMouse = event.button === 1;
     const explicitPan = event.button === 0 && (space || tool === 'hand');
     if (!middleMouse && !explicitPan) return;
-    if ((event.target as HTMLElement).closest('.board-card') && !middleMouse && !space && tool !== 'hand') return;
+    if (
+      (event.target as HTMLElement).closest('.board-card') &&
+      !middleMouse &&
+      !space &&
+      tool !== 'hand'
+    )
+      return;
     event.preventDefault();
     const node = board;
     const start = { x: event.clientX, y: event.clientY };
@@ -927,7 +1165,12 @@
   }
   function wheel(e: WheelEvent) {
     const card = (e.target as HTMLElement).closest<HTMLElement>('.board-card');
-    if (card?.dataset.entity && selectedIds.includes(card.dataset.entity) && !e.ctrlKey && !e.metaKey) {
+    if (
+      card?.dataset.entity &&
+      selectedIds.includes(card.dataset.entity) &&
+      !e.ctrlKey &&
+      !e.metaKey
+    ) {
       e.preventDefault();
       card.scrollTop += e.deltaY;
       card.scrollLeft += e.deltaX;
@@ -1097,7 +1340,13 @@
       searchOpen = true;
       return;
     }
-    if (input || searchOpen || helpOpen || settingsOpen || (e.target as HTMLElement).closest('[role="menu"]'))
+    if (
+      input ||
+      searchOpen ||
+      helpOpen ||
+      settingsOpen ||
+      (e.target as HTMLElement).closest('[role="menu"]')
+    )
       return;
     if (e.code === 'Space') {
       space = true;
@@ -1119,6 +1368,7 @@
       curveSettingsOpen = false;
     }
     if (e.key.toLowerCase() === 'n') addCard();
+    if (e.key.toLowerCase() === 't') addFreeText();
     if (e.key.toLowerCase() === 'v') {
       tool = 'select';
       curveSettingsOpen = false;
@@ -1291,7 +1541,11 @@
       ondragover={(e) => e.preventDefault()}
       ondrop={drop}
       ondblclick={(e) => {
-        if (!(e.target as HTMLElement).closest('.board-card,.toolbar,.zoom-controls,.navigation-controls,.group-box')) {
+        if (
+          !(e.target as HTMLElement).closest(
+            '.board-card,.toolbar,.zoom-controls,.navigation-controls,.group-box',
+          )
+        ) {
           e.preventDefault();
           e.stopPropagation();
           addCard(point(e));
@@ -1314,7 +1568,11 @@
                 event.stopPropagation();
                 selectGroup(group.id);
                 const rect = board.getBoundingClientRect();
-                groupMenu = { id: group.id, x: event.clientX - rect.left, y: event.clientY - rect.top };
+                groupMenu = {
+                  id: group.id,
+                  x: event.clientX - rect.left,
+                  y: event.clientY - rect.top,
+                };
                 selectionMenu = null;
               }}
             >
@@ -1380,9 +1638,8 @@
                 marker-end="url(#arrow)"
               />{/if}
           {/each}
-          {#if connecting && placementsByEntity.has(connecting.entityId)}{@const sourcePlacement = placementsByEntity.get(
-              connecting.entityId,
-            )!}{@const targetPlacement = snapTarget
+          {#if connecting && placementsByEntity.has(connecting.entityId)}{@const sourcePlacement =
+              placementsByEntity.get(connecting.entityId)!}{@const targetPlacement = snapTarget
               ? placementsByEntity.get(snapTarget.entityId)
               : undefined}<path
               class="connection-preview"
@@ -1402,10 +1659,25 @@
             <ContextMenu.Root
               ><ContextMenu.Trigger
                 tabindex={0}
-                class={`board-card ${entity.color} ${selectedIds.includes(entity.id) || focused === entity.id ? 'selected' : ''} ${editingBoard === entity.id ? 'editing' : ''} ${connecting && connecting.entityId !== entity.id ? 'connection-target' : ''} ${connecting?.entityId === entity.id ? 'connection-source' : ''} ${dragging && selectedIds.includes(entity.id) ? 'dragging' : ''}`}
+                class={`board-card ${entity.type === 'text' ? 'free-text' : ''} ${entity.color} ${selectedIds.includes(entity.id) || focused === entity.id ? 'selected' : ''} ${editingBoard === entity.id ? 'editing' : ''} ${connecting && connecting.entityId !== entity.id ? 'connection-target' : ''} ${connecting?.entityId === entity.id ? 'connection-source' : ''} ${dragging && selectedIds.includes(entity.id) ? 'dragging' : ''}`}
                 data-entity={entity.id}
                 style={`transform:translate(${p.x}px,${p.y}px);width:${p.width}px;height:${p.height}px;z-index:${p.z}`}
                 onpointerdown={(e) => dragCard(e, p)}
+                onclick={(e) => {
+                  // Free text: links open in a new tab when the card isn't being edited.
+                  if (entity.type !== 'text' || editingBoard === entity.id) return;
+                  const anchor = (e.target as HTMLElement).closest('a');
+                  if (!anchor?.href) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  window.open(anchor.href, '_blank', 'noopener');
+                }}
+                ondblclick={(event) => {
+                  if (entity.type !== 'text') return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  beginFreeTextEdit(entity.id);
+                }}
                 oncontextmenu={(event) => {
                   if (selectedIds.length > 1 && selectedIds.includes(entity.id)) {
                     event.preventDefault();
@@ -1418,7 +1690,8 @@
                   if ((e.target as HTMLElement).closest('.live-editor,.editable')) return;
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    open(entity.id);
+                    if (entity.type === 'text') beginFreeTextEdit(entity.id);
+                    else open(entity.id);
                   }
                   if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
                     e.preventDefault();
@@ -1439,28 +1712,33 @@
                 }}
                 aria-label={entity.title}
               >
-                <button
-                  class="open-card"
-                  title="Open in workbench"
-                  aria-label={`Open ${entity.title} in workbench`}
-                  onclick={(e) => {
-                    e.stopPropagation();
-                    open(entity.id);
-                  }}
-                  ><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"
-                    ><rect
-                      x="2"
-                      y="3"
-                      width="12"
-                      height="10"
-                      rx="1"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.2"
-                    /><path d="M9 3v10h4V3Z" fill="currentColor" /></svg
-                  ></button
-                >
-                {#if doc.camera.zoom < 0.35 && editingBoard !== entity.id}<strong
+                {#if entity.type !== 'text'}<button
+                    class="open-card"
+                    title="Open in workbench"
+                    aria-label={`Open ${entity.title} in workbench`}
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      open(entity.id);
+                    }}
+                    ><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"
+                      ><rect
+                        x="2"
+                        y="3"
+                        width="12"
+                        height="10"
+                        rx="1"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.2"
+                      /><path d="M9 3v10h4V3Z" fill="currentColor" /></svg
+                    ></button
+                  >{/if}
+                {#if entity.type === 'text'}<LiveEditor
+                    body={entity.body}
+                    editing={editingBoard === entity.id}
+                    oninput={(body) => editFreeText(entity.id, body)}
+                    onfinish={() => finishFreeTextEdit(entity.id)}
+                  />{:else if doc.camera.zoom < 0.35 && editingBoard !== entity.id}<strong
                     >{entity.title}</strong
                   >{:else if entity.type === 'pdf'}<div class="pdf-cover">
                     <FileText size={30} strokeWidth={1.2} />
@@ -1495,7 +1773,7 @@
                     oncommit={(before) => editCommit(entity.id, before)}
                   />{/if}
                 {#if selectedIds.includes(entity.id) && editingBoard !== entity.id}
-                  {#each ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as direction}<button
+                  {#each entity.type === 'text' ? ['n', 'e', 's', 'w'] : ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as direction}<button
                       class={`card-resize-zone ${direction}`}
                       tabindex="-1"
                       aria-label={`Resize ${entity.title} ${direction}`}
@@ -1509,9 +1787,9 @@
                 {/if}
               </ContextMenu.Trigger><ContextMenu.Portal
                 ><ContextMenu.Content class="context-menu"
-                  ><ContextMenu.Item onclick={() => open(entity.id)}
-                    >Open in workbench <PanelRightOpen size={15} /></ContextMenu.Item
-                  >{#if entity.anchor}<ContextMenu.Item onclick={() => source(entity)}
+                  >{#if entity.type !== 'text'}<ContextMenu.Item onclick={() => open(entity.id)}
+                      >Open in workbench <PanelRightOpen size={15} /></ContextMenu.Item
+                    >{/if}{#if entity.anchor}<ContextMenu.Item onclick={() => source(entity)}
                       >Open source <ArrowUpRight size={15} /></ContextMenu.Item
                     >{/if}<ContextMenu.Item onclick={() => duplicate(entity.id)}
                     >Duplicate</ContextMenu.Item
@@ -1524,15 +1802,15 @@
                       connecting = { entityId: entity.id, side };
                       cursorWorld = connectionPoint(p, side);
                     }}>Connect from right…</ContextMenu.Item
-                  ><ContextMenu.Separator class="menu-separator" />
-                  <div class="color-row">
-                    {#each ['white', 'yellow', 'blue', 'green', 'pink', 'purple'] as c}<button
-                        class={`swatch ${c}`}
-                        aria-label={`Set ${c} card color`}
-                        title={c}
-                        onclick={() => color(entity.id, c)}
-                      ></button>{/each}
-                  </div>
+                  >{#if entity.type !== 'text'}<ContextMenu.Separator class="menu-separator" />
+                    <div class="color-row">
+                      {#each ['white', 'yellow', 'blue', 'green', 'pink', 'purple'] as c}<button
+                          class={`swatch ${c}`}
+                          aria-label={`Set ${c} card color`}
+                          title={c}
+                          onclick={() => color(entity.id, c)}
+                        ></button>{/each}
+                    </div>{/if}
                   <ContextMenu.Item onclick={() => reorder(entity.id, true)}
                     >Bring forward</ContextMenu.Item
                   ><ContextMenu.Item onclick={() => reorder(entity.id, false)}
@@ -1544,10 +1822,8 @@
                 ></ContextMenu.Portal
               ></ContextMenu.Root
             >
-            {#if tool === 'connect'}{#each ['top', 'right', 'bottom', 'left'] as side}{@const portPoint = connectionPoint(
-                  p,
-                  side as ConnectionSide,
-                )}<button
+            {#if tool === 'connect'}{#each ['top', 'right', 'bottom', 'left'] as side}{@const portPoint =
+                  connectionPoint(p, side as ConnectionSide)}<button
                   class="connection-port"
                   class:active={connecting?.entityId === entity.id && connecting.side === side}
                   class:snap-target={snapTarget?.entityId === entity.id && snapTarget.side === side}
@@ -1556,8 +1832,7 @@
                   style={`left:${portPoint.x}px;top:${portPoint.y}px`}
                   aria-label={`Connect from ${side} of ${entity.title}`}
                   title={`Connect from ${side}`}
-                  onpointerdown={(event) =>
-                    connectionDrag(event, p, side as ConnectionSide)}
+                  onpointerdown={(event) => connectionDrag(event, p, side as ConnectionSide)}
                 ></button>{/each}{/if}
           {/if}{/each}
       </div>
@@ -1573,9 +1848,13 @@
           style={`left:${selectionMenu.x}px;top:${selectionMenu.y}px`}
           onpointerdown={(event) => event.stopPropagation()}
         >
-          <button role="menuitem" onclick={createGroup}>Create group from {selectedIds.length} cards</button>
+          <button role="menuitem" onclick={createGroup}
+            >Create group from {selectedIds.length} items</button
+          >
         </div>{/if}
-      {#if groupMenu}{@const activeGroup = (doc.groups ?? []).find((group) => group.id === groupMenu?.id)}
+      {#if groupMenu}{@const activeGroup = (doc.groups ?? []).find(
+          (group) => group.id === groupMenu?.id,
+        )}
         {#if activeGroup}<div
             class="floating-menu group-menu"
             role="menu"
@@ -1631,14 +1910,19 @@
           onclick={() => addCard()}><Plus size={20} /></button
         ><button
           class="icon-button"
+          title="Free text · T"
+          aria-label="Add free text"
+          onclick={() => addFreeText()}><Type size={19} /></button
+        ><button
+          class="icon-button"
           title="Import PDF, image, or markdown"
           aria-label="Import files"
           onclick={() => fileInput.click()}><Upload size={19} /></button
         ><button
           class:active={tool === 'connect'}
           class="icon-button"
-          title="Connect cards · C"
-          aria-label="Connect cards"
+          title="Connect items · C"
+          aria-label="Connect items"
           aria-pressed={tool === 'connect'}
           onclick={() => {
             tool = tool === 'connect' ? 'select' : 'connect';
@@ -1666,51 +1950,62 @@
           aria-label="Bezier curve settings"
           onpointerdown={(event) => event.stopPropagation()}
         >
-          <div class="curve-settings-title"><strong>Bezier curve</strong><button
+          <div class="curve-settings-title">
+            <strong>Bezier curve</strong><button
               onclick={() => (bezier = { ...defaultBezierConfig })}>Reset</button
-            ></div
-          >
-          <label>Curvature <output>{bezier.curvature.toFixed(2)}</output><input
+            >
+          </div>
+          <label
+            >Curvature <output>{bezier.curvature.toFixed(2)}</output><input
               type="range"
               min="0"
               max="1.5"
               step="0.05"
               bind:value={bezier.curvature}
-            /></label>
-          <label>Minimum pull <output>{bezier.minControlDistance}px</output><input
+            /></label
+          >
+          <label
+            >Minimum pull <output>{bezier.minControlDistance}px</output><input
               type="range"
               min="0"
               max="160"
               step="5"
               bind:value={bezier.minControlDistance}
-            /></label>
-          <label>Maximum pull <output>{bezier.maxControlDistance}px</output><input
+            /></label
+          >
+          <label
+            >Maximum pull <output>{bezier.maxControlDistance}px</output><input
               type="range"
               min="40"
               max="400"
               step="10"
               bind:value={bezier.maxControlDistance}
-            /></label>
-          <label>Source pull <output>{bezier.sourcePull.toFixed(2)}</output><input
+            /></label
+          >
+          <label
+            >Source pull <output>{bezier.sourcePull.toFixed(2)}</output><input
               type="range"
               min="0"
               max="2"
               step="0.05"
               bind:value={bezier.sourcePull}
-            /></label>
-          <label>Target pull <output>{bezier.targetPull.toFixed(2)}</output><input
+            /></label
+          >
+          <label
+            >Target pull <output>{bezier.targetPull.toFixed(2)}</output><input
               type="range"
               min="0"
               max="2"
               step="0.05"
               bind:value={bezier.targetPull}
-            /></label>
+            /></label
+          >
         </div>{/if}
       <div class="board-hint">
         {tool === 'connect'
           ? connecting
-            ? 'Choose a destination dot or release anywhere inside a card'
-            : 'Click or drag from a card dot'
+            ? 'Choose a destination dot or release anywhere inside an item'
+            : 'Click or drag from an item dot'
           : navigationMode === 'mouse'
             ? 'Middle-drag to pan · Wheel to zoom · Double-click to write'
             : 'Two-finger pan · Pinch to zoom · Double-click to write'}
@@ -1810,7 +2105,8 @@
   ><Dialog.Portal
     ><Dialog.Overlay class="dialog-overlay" /><Dialog.Content class="search-dialog"
       ><Dialog.Title class="sr-only">Search your workspace</Dialog.Title><Dialog.Description
-        class="sr-only">Find cards, highlights, and text inside local PDFs.</Dialog.Description
+        class="sr-only"
+        >Find cards, free text, highlights, and text inside local PDFs.</Dialog.Description
       >
       <div class="search-box">
         <Search size={19} /><input
@@ -1823,16 +2119,17 @@
       </div>
       <div class="search-results">
         {#if !query}<p class="muted">
-            Search cards, highlights, and text inside your PDFs.
+            Search cards, free text, highlights, and text inside your PDFs.
           </p>{:else if !hits.length}<p class="muted">
             No matches for “{query}”.
           </p>{:else}{#each hits as id}{@const e = doc.entities[id]}<button
               class="search-result"
               onclick={() => {
-                open(id);
+                if (e.type === 'text') revealOnBoard(id);
+                else open(id);
                 searchOpen = false;
               }}
-              ><FileText size={17} /><span
+              >{#if e.type === 'text'}<Type size={17} />{:else}<FileText size={17} />{/if}<span
                 ><strong>{e.title}</strong><small
                   >{e.anchor?.quote ?? e.body.replace(/[#*]/g, '').slice(0, 110)}</small
                 ></span
@@ -1865,20 +2162,25 @@
       </aside>
       <section class="settings-main">
         <div class="settings-heading">
-          <div><small>Appearance</small><h2>Fonts</h2></div>
-          <Dialog.Close class="icon-button" aria-label="Close settings"><X size={17} /></Dialog.Close>
+          <div>
+            <small>Appearance</small>
+            <h2>Fonts</h2>
+          </div>
+          <Dialog.Close class="icon-button" aria-label="Close settings"
+            ><X size={17} /></Dialog.Close
+          >
         </div>
         {#if appearanceMatches}<div class="settings-group">
             <label class="font-setting">
-              <span><strong>Whiteboard font</strong><small
+              <span
+                ><strong>Whiteboard font</strong><small
                   >Cards and writing surfaces. PDF documents are never changed.</small
                 ></span
               >
               <select
                 aria-label="Whiteboard font"
                 value={whiteboardFont}
-                onchange={(event) =>
-                  setFont('whiteboardFont', event.currentTarget.value as FontId)}
+                onchange={(event) => setFont('whiteboardFont', event.currentTarget.value as FontId)}
               >
                 {#each fontOptions as font}<option value={font.id}>{font.label}</option>{/each}
               </select>
@@ -1887,15 +2189,15 @@
               >
             </label>
             <label class="font-setting">
-              <span><strong>Interface font</strong><small
+              <span
+                ><strong>Interface font</strong><small
                   >Menus, controls, dialogs, and application labels.</small
                 ></span
               >
               <select
                 aria-label="Interface font"
                 value={interfaceFont}
-                onchange={(event) =>
-                  setFont('interfaceFont', event.currentTarget.value as FontId)}
+                onchange={(event) => setFont('interfaceFont', event.currentTarget.value as FontId)}
               >
                 {#each fontOptions as font}<option value={font.id}>{font.label}</option>{/each}
               </select>
@@ -1904,7 +2206,8 @@
               >
             </label>
           </div>{:else}<div class="settings-no-results">
-            <Search size={20} aria-hidden="true" /><p>No settings match “{settingsQuery}”.</p>
+            <Search size={20} aria-hidden="true" />
+            <p>No settings match “{settingsQuery}”.</p>
           </div>{/if}
       </section>
     </Dialog.Content></Dialog.Portal
