@@ -31,7 +31,6 @@
     seed,
     uid,
     SpatialGrid,
-    applyChanges,
     openPane,
     closePane,
     movePane,
@@ -48,7 +47,22 @@
     type ConnectionSide,
     type FontId,
   } from './lib/model';
-  import { loadDoc, saveDoc, saveAsset, loadPdfText, savePdfText } from './lib/storage';
+  import { saveAsset, loadPdfText, savePdfText } from './lib/storage';
+  import {
+    commit,
+    doc,
+    docStatus,
+    flush,
+    loadDoc as loadSavedDoc,
+    onDocChange,
+    persist,
+    record,
+    redo,
+    redoStack,
+    setNotifyHandler,
+    undo,
+    undoStack,
+  } from './lib/doc.svelte';
   import { titleFromMarkdown } from './lib/markdown';
   import {
     fitFreeTextSize,
@@ -73,9 +87,6 @@
     defaultBezierConfig,
     type BezierConfig,
   } from './lib/connections';
-  let doc = $state<Doc>(seed());
-  let loaded = $state(false);
-  let saveStatus = $state('Opening…');
   let notice = $state('');
   let selected = $state('');
   let selectedIds = $state<string[]>([]);
@@ -112,15 +123,9 @@
   let boardHeight = $state(800);
   let fileInput: HTMLInputElement;
   let searchInput: HTMLInputElement;
-  let undoStack: Change[][] = $state([]);
-  let redoStack: Change[][] = $state([]);
-  let saveTimer: ReturnType<typeof setTimeout>;
   let notificationTimer: ReturnType<typeof setTimeout>;
   let worker: Worker;
   let request = 0;
-  let writing = Promise.resolve();
-  let savingRevision = 0;
-  let loadFailed = $state(false);
   const colors = ['white', 'yellow', 'blue', 'green', 'pink', 'purple'];
   const navigationMode = $derived(doc.navigationMode ?? 'touchpad');
   const whiteboardFont = $derived(doc.whiteboardFont ?? 'inter');
@@ -153,49 +158,12 @@
     doc[target] = value;
     persist();
   }
-  function stabilizeConnectionSides(value: Doc): Doc {
-    value.panes = value.panes.filter((pane) => value.entities[pane.entityId]?.type !== 'text');
-    const placements = new Map(
-      value.placements.map((placement) => [placement.entityId, placement]),
-    );
-    for (const edge of value.edges) {
-      if (edge.fromSide && edge.toSide) continue;
-      const from = placements.get(edge.from);
-      const to = placements.get(edge.to);
-      if (!from || !to) continue;
-      const sides = facingConnectionSides(from, to);
-      edge.fromSide ??= sides[0];
-      edge.toSide ??= sides[1];
-    }
-    return value;
-  }
   function notify(text: string) {
     notice = text;
     clearTimeout(notificationTimer);
     notificationTimer = setTimeout(() => (notice = ''), 5000);
   }
-  function persist() {
-    if (!loaded || loadFailed) return;
-    saveStatus = 'Saving…';
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(flush, 250);
-  }
-  function flush() {
-    if (!loaded || loadFailed) return;
-    clearTimeout(saveTimer);
-    const revision = ++savingRevision;
-    const snapshot = $state.snapshot(doc);
-    writing = writing
-      .catch(() => {})
-      .then(() => saveDoc(snapshot))
-      .then(() => {
-        if (revision === savingRevision) saveStatus = 'Saved on this device';
-      })
-      .catch((e) => {
-        saveStatus = 'Could not save';
-        notify(`Your changes are still open. Storage failed: ${e.message}`);
-      });
-  }
+  setNotifyHandler(notify);
   const indexedText = new Map<string, string>();
   function updateSearch() {
     if (!worker) return;
@@ -220,37 +188,7 @@
       }
     if (query) runSearch();
   }
-  function commit(changes: Change[]) {
-    if (!changes.length) return;
-    doc = applyChanges($state.snapshot(doc), changes);
-    undoStack.push(changes);
-    if (undoStack.length > 100) undoStack.shift();
-    redoStack = [];
-    updateSearch();
-    persist();
-  }
-  function record(changes: Change[]) {
-    if (!changes.length) return;
-    undoStack.push(changes);
-    redoStack = [];
-    persist();
-  }
-  function undo() {
-    const c = undoStack.pop();
-    if (!c) return;
-    doc = applyChanges($state.snapshot(doc), c, true);
-    redoStack.push(c);
-    updateSearch();
-    persist();
-  }
-  function redo() {
-    const c = redoStack.pop();
-    if (!c) return;
-    doc = applyChanges($state.snapshot(doc), c);
-    undoStack.push(c);
-    updateSearch();
-    persist();
-  }
+  onDocChange(updateSearch);
   function paneChanges(panes: Pane[]) {
     return [
       { collection: 'document', id: 'panes', before: $state.snapshot(doc.panes), after: panes },
@@ -1328,7 +1266,7 @@
     worker?.postMessage({ type: 'query', query, request: ++request });
   }
   function key(e: KeyboardEvent) {
-    if (!loaded || e.defaultPrevented) return;
+    if (!docStatus.loaded || e.defaultPrevented) return;
     const input = (e.target as HTMLElement).closest('input,textarea,[contenteditable="true"]');
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
       e.preventDefault();
@@ -1394,12 +1332,9 @@
       if (e.data.request === request) hits = e.data.hits.filter((id: string) => doc.entities[id]);
     };
     let alive = true;
-    loadDoc()
+    loadSavedDoc()
       .then((saved) => {
         if (!alive) return;
-        if (saved) doc = stabilizeConnectionSides(saved);
-        loaded = true;
-        saveStatus = 'Saved on this device';
         updateSearch();
         if (!saved) persist();
         // Normalize free-text sizes once the board has rendered: clamp legacy
@@ -1411,9 +1346,7 @@
         });
       })
       .catch((e) => {
-        loadFailed = true;
         notify(`Could not load your workspace: ${e.message}. Reload to retry; saving is paused.`);
-        saveStatus = 'Storage unavailable';
       });
     const observer = new ResizeObserver((entries) => {
       boardWidth = entries[0].contentRect.width;
@@ -1496,12 +1429,12 @@
       oninput={persist}
     />
     <div class="bar-right">
-      <span class="save-state" title={saveStatus}
-        >{#if saveStatus === 'Saving…'}<LoaderCircle
+      <span class="save-state" title={docStatus.saveStatus}
+        >{#if docStatus.saveStatus === 'Saving…'}<LoaderCircle
             size={13}
-          />{:else if saveStatus === 'Saved on this device'}<Check
+          />{:else if docStatus.saveStatus === 'Saved on this device'}<Check
             size={13}
-          />{/if}{saveStatus}</span
+          />{/if}{docStatus.saveStatus}</span
       ><button
         class="icon-button"
         aria-label="Search locally"
@@ -1520,7 +1453,7 @@
       >
     </div>
   </header>
-  <main inert={!loaded}>
+  <main inert={!docStatus.loaded}>
     <div
       class:hand={tool === 'hand' || space}
       class:connecting={Boolean(connecting)}
@@ -2065,7 +1998,7 @@
         >
       </div>
     </div>
-    {#if loaded}<Workbench
+    {#if docStatus.loaded}<Workbench
         {doc}
         width={benchWidth}
         {focused}
@@ -2098,8 +2031,8 @@
       />{/if}
   </main>
 </div>
-{#if !loaded}<div class="load-cover" role="status">
-    {loadFailed
+{#if !docStatus.loaded}<div class="load-cover" role="status">
+    {docStatus.loadFailed
       ? 'Your workspace could not be loaded. Reload to retry.'
       : 'Opening your workspace…'}
   </div>{/if}
