@@ -328,6 +328,9 @@
       body: 'New Text',
       color: 'white',
     };
+    // Register the entity before placing so place() sees type 'text' and sizes
+    // the placement for free text instead of falling back to card defaults.
+    doc.entities[id] = entity;
     const placement = place(
       id,
       point ?? {
@@ -539,6 +542,24 @@
     }
     return hi;
   }
+  // Self-healing: whenever a free-text editor's rendered size changes (mount,
+  // font settle, text edits, external markdown), re-fit the box around it.
+  const freeTextObservers = new Map<string, ResizeObserver>();
+  function observeFreeText(node: HTMLElement, id: string) {
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => fitFreeText(id));
+    });
+    observer.observe(node);
+    freeTextObservers.set(id, observer);
+    return {
+      destroy() {
+        observer.disconnect();
+        freeTextObservers.delete(id);
+      },
+    };
+  }
   function fitFreeText(
     id: string,
     opts: { lock?: 'width' | 'height'; width?: number; height?: number } = {},
@@ -591,6 +612,8 @@
     const host = freeTextHost(id);
     if (!host) return;
     fitFreeText(id);
+    // Re-fit once the editor's layout has fully settled (fresh mounts measure small).
+    requestAnimationFrame(() => fitFreeText(id));
     const surface = host.querySelector<HTMLElement>('.ProseMirror');
     if (!surface) return;
     surface.focus();
@@ -619,6 +642,8 @@
     const entity = doc.entities[id];
     const placement = placementsByEntity.get(id);
     if (!entity || !placement) return;
+    // Final fit from settled layout so the stored size always hugs the text.
+    fitFreeText(id);
     const changes: Change[] = [];
     if (before.entity.body !== entity.body || before.entity.title !== entity.title)
       changes.push({
@@ -1423,6 +1448,13 @@
         saveStatus = 'Saved on this device';
         updateSearch();
         if (!saved) persist();
+        // Normalize free-text sizes once the board has rendered: clamp legacy
+        // heights and re-hug the text so no broken state survives a reload.
+        tick().then(() => {
+          for (const p of doc.placements)
+            if (doc.entities[p.entityId]?.type === 'text') fitFreeText(p.entityId);
+          persist();
+        });
       })
       .catch((e) => {
         loadFailed = true;
@@ -1749,12 +1781,15 @@
                       /><path d="M9 3v10h4V3Z" fill="currentColor" /></svg
                     ></button
                   >{/if}
-                {#if entity.type === 'text'}<LiveEditor
+                {#if entity.type === 'text'}<div
+                    class="free-text-fit"
+                    use:observeFreeText={entity.id}
+                  ><LiveEditor
                     body={entity.body}
                     editing={editingBoard === entity.id}
                     oninput={(body) => editFreeText(entity.id, body)}
                     onfinish={() => finishFreeTextEdit(entity.id)}
-                  />{:else if doc.camera.zoom < 0.35 && editingBoard !== entity.id}<strong
+                  /></div>{:else if doc.camera.zoom < 0.35 && editingBoard !== entity.id}<strong
                     >{entity.title}</strong
                   >{:else if entity.type === 'pdf'}<div class="pdf-cover">
                     <FileText size={30} strokeWidth={1.2} />

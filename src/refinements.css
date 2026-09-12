@@ -307,6 +307,7 @@
 .board-card.free-text {
   min-height: 30px;
   padding: 0;
+  border-width: 0;
   border-color: transparent;
   border-radius: 0;
   background: transparent;
@@ -315,6 +316,9 @@
 }
 .board-card.free-text:hover {
   border-color: transparent;
+}
+.board-card.free-text .free-text-fit {
+  width: 100%;
 }
 .board-card.free-text .live-editor {
   width: 100%;
