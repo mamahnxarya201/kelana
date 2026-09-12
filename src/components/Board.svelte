@@ -1,51 +1,121 @@
 <script lang="ts">
-  import { onMount, tick, type Snippet } from 'svelte';
+  import { onMount, tick } from 'svelte';
+  import {
+    Hand,
+    Laptop,
+    Link2,
+    Maximize,
+    Minus,
+    Mouse,
+    MousePointer2,
+    Plus,
+    Redo2,
+    Type,
+    Undo2,
+    Upload,
+  } from 'lucide-svelte';
+  import BoardCard from './BoardCard.svelte';
   import EdgesLayer from './EdgesLayer.svelte';
-  import { commit, doc, persist } from '../lib/doc.svelte';
+  import { commit, doc, persist, redo, redoStack, undo, undoStack } from '../lib/doc.svelte';
   import { clearSelection, selectGroup, selection } from '../lib/selection.svelte';
-  import { point, viewport } from '../lib/viewport.svelte';
-  import type { BezierConfig } from '../lib/connections';
-  import { uid, type ConnectionSide, type Group, type Placement, type Point } from '../lib/model';
+  import { centerPoint, fit, point, viewport, zoom } from '../lib/viewport.svelte';
+  import {
+    connectionPoint,
+    defaultBezierConfig,
+    facingConnectionSides,
+    nearestConnectionSide,
+  } from '../lib/connections';
+  import {
+    SpatialGrid,
+    uid,
+    type ConnectionSide,
+    type Edge,
+    type Entity,
+    type Group,
+    type Placement,
+    type Point,
+  } from '../lib/model';
 
   let {
-    tool,
-    connecting,
-    snapTarget,
-    cursorWorld,
-    bezier,
-    cards,
-    overlays,
+    focused,
+    editingBoard,
     onclearinteraction,
-    onfocusclear,
-    onupdateconnectionpreview,
+    onfocus,
+    onediting,
     ondrop,
     onaddcard,
+    onaddfreetext,
+    onimport,
     onnotify,
+    onopen,
+    onsource,
+    onduplicate,
+    oncolor,
+    onreorder,
+    onremove,
+    onedit,
+    oneditcommit,
+    onbeginfreetextedit,
+    oneditfreetext,
+    onfinishfreetextedit,
   }: {
-    tool: 'select' | 'hand' | 'connect';
-    connecting: { entityId: string; side: ConnectionSide } | null;
-    snapTarget: { entityId: string; side: ConnectionSide } | null;
-    cursorWorld: Point;
-    bezier: BezierConfig;
-    cards: Snippet;
-    overlays: Snippet;
+    focused: string;
+    editingBoard: string;
     onclearinteraction: () => void;
-    onfocusclear: () => void;
-    onupdateconnectionpreview: (event: PointerEvent) => void;
+    onfocus: (id: string) => void;
+    onediting: (id: string) => void;
     ondrop: (event: DragEvent) => void;
-    onaddcard: (point: Point) => void;
+    onaddcard: (point?: Point) => void;
+    onaddfreetext: (point?: Point) => void;
+    onimport: () => void;
     onnotify: (message: string) => void;
+    onopen: (id: string) => void;
+    onsource: (entity: Entity) => void;
+    onduplicate: (id: string) => void;
+    oncolor: (id: string, color: string) => void;
+    onreorder: (id: string, front: boolean) => void;
+    onremove: (id: string) => void;
+    onedit: (id: string, body: string) => void;
+    oneditcommit: (id: string, before: string) => void;
+    onbeginfreetextedit: (id: string) => void;
+    oneditfreetext: (id: string, body: string) => void;
+    onfinishfreetextedit: (id: string) => void;
   } = $props();
 
   let element: HTMLDivElement;
   let edgesLayer: EdgesLayer;
   let marquee = $state<{ left: number; top: number; width: number; height: number } | null>(null);
+  let tool = $state<'select' | 'hand' | 'connect'>('select');
+  let connecting = $state<{ entityId: string; side: ConnectionSide } | null>(null);
+  let snapTarget = $state<{ entityId: string; side: ConnectionSide } | null>(null);
+  let cursorWorld = $state<Point>({ x: 0, y: 0 });
+  let curveSettingsOpen = $state(false);
+  let bezier = $state({ ...defaultBezierConfig });
+  let dragging = $state(false);
+  let resizing = $state(false);
   let groupEditing = $state('');
   let groupEditBefore = '';
   const colors = ['white', 'yellow', 'blue', 'green', 'pink', 'purple'];
+  const navigationMode = $derived(doc.navigationMode ?? 'touchpad');
+  const placementsByEntity = $derived(
+    new Map(doc.placements.map((placement) => [placement.entityId, placement])),
+  );
+  const visible = $derived(
+    new SpatialGrid(doc.placements).query(
+      (-doc.camera.x - 200) / doc.camera.zoom,
+      (-doc.camera.y - 200) / doc.camera.zoom,
+      (viewport.width + 400) / doc.camera.zoom,
+      (viewport.height + 400) / doc.camera.zoom,
+    ),
+  );
 
   export function getElement() {
     return element;
+  }
+
+  export function setResizing(value: boolean) {
+    resizing = value;
+    element?.closest('.workspace-shell')?.classList.toggle('resizing', resizing);
   }
 
   export function getRect() {
@@ -121,7 +191,9 @@
   function createGroup() {
     if (selection.ids.length < 2) return;
     const before = $state.snapshot(doc.groups ?? []);
-    const members = doc.placements.filter((placement) => selection.ids.includes(placement.entityId));
+    const members = doc.placements.filter((placement) =>
+      selection.ids.includes(placement.entityId),
+    );
     const padding = 24;
     const x = Math.min(...members.map((member) => member.x)) - padding;
     const y = Math.min(...members.map((member) => member.y)) - padding;
@@ -208,6 +280,180 @@
     handle.addEventListener('pointercancel', finish);
   }
 
+  function makeEdge(
+    from: string,
+    to: string,
+    fromSide?: ConnectionSide,
+    toSide?: ConnectionSide,
+  ): Edge {
+    const fromPlacement = placementsByEntity.get(from);
+    const toPlacement = placementsByEntity.get(to);
+    if ((!fromSide || !toSide) && fromPlacement && toPlacement) {
+      const facing = facingConnectionSides(fromPlacement, toPlacement);
+      fromSide ??= facing[0];
+      toSide ??= facing[1];
+    }
+    return { id: uid('edge'), from, to, fromSide, toSide };
+  }
+
+  function updateConnectionPreview(event: PointerEvent) {
+    cursorWorld = point(event);
+    if (!connecting) {
+      snapTarget = null;
+      return;
+    }
+    const landed = document.elementFromPoint(event.clientX, event.clientY);
+    const exactPort = landed?.closest<HTMLElement>('.connection-port');
+    const targetCard = landed?.closest<HTMLElement>('.board-card');
+    const targetId = exactPort?.dataset.entity ?? targetCard?.dataset.entity;
+    if (!targetId || targetId === connecting.entityId) {
+      snapTarget = null;
+      return;
+    }
+    const targetPlacement = placementsByEntity.get(targetId);
+    if (!targetPlacement) {
+      snapTarget = null;
+      return;
+    }
+    snapTarget = {
+      entityId: targetId,
+      side: exactPort?.dataset.side
+        ? (exactPort.dataset.side as ConnectionSide)
+        : nearestConnectionSide(targetPlacement, cursorWorld),
+    };
+  }
+
+  function finishConnection(to: string, toSide: ConnectionSide) {
+    if (!connecting || connecting.entityId === to) {
+      connecting = null;
+      return;
+    }
+    const source = connecting;
+    if (
+      !doc.edges.some(
+        (edge) =>
+          edge.from === source.entityId &&
+          edge.to === to &&
+          edge.fromSide === source.side &&
+          edge.toSide === toSide,
+      )
+    ) {
+      const edge = makeEdge(source.entityId, to, source.side, toSide);
+      commit([{ collection: 'edges', id: edge.id, before: undefined, after: edge }]);
+    }
+    connecting = null;
+    snapTarget = null;
+  }
+
+  function connectionDrag(event: PointerEvent, placement: Placement, side: ConnectionSide) {
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    event.preventDefault();
+    if (connecting && connecting.entityId !== placement.entityId) {
+      finishConnection(placement.entityId, side);
+      return;
+    }
+    if (connecting?.entityId === placement.entityId && connecting.side === side) {
+      connecting = null;
+      snapTarget = null;
+      return;
+    }
+    connecting = { entityId: placement.entityId, side };
+    snapTarget = null;
+    cursorWorld = connectionPoint(placement, side);
+    const node = event.currentTarget as HTMLElement;
+    const start = { x: event.clientX, y: event.clientY };
+    let moved = false;
+    node.setPointerCapture(event.pointerId);
+    const movement = (moveEvent: PointerEvent) => {
+      if (Math.hypot(moveEvent.clientX - start.x, moveEvent.clientY - start.y) > 3) moved = true;
+      updateConnectionPreview(moveEvent);
+    };
+    const cleanup = () => {
+      node.removeEventListener('pointermove', movement);
+      node.removeEventListener('pointerup', end);
+      node.removeEventListener('pointercancel', cancel);
+    };
+    const end = (endEvent: PointerEvent) => {
+      cleanup();
+      if (!moved) return;
+      updateConnectionPreview(endEvent);
+      if (snapTarget) finishConnection(snapTarget.entityId, snapTarget.side);
+      else {
+        connecting = null;
+        snapTarget = null;
+      }
+    };
+    const cancel = () => {
+      cleanup();
+      connecting = null;
+      snapTarget = null;
+    };
+    node.addEventListener('pointermove', movement);
+    node.addEventListener('pointerup', end);
+    node.addEventListener('pointercancel', cancel);
+  }
+
+  function setConnection(id: string, side: ConnectionSide) {
+    tool = 'connect';
+    curveSettingsOpen = true;
+    snapTarget = null;
+    connecting = { entityId: id, side };
+    const placement = placementsByEntity.get(id);
+    if (placement) cursorWorld = connectionPoint(placement, side);
+  }
+
+  function refreshCard(id: string, placement: Placement) {
+    refreshEdges(id, placement);
+    refreshPorts(id, placement);
+  }
+
+  export function activateSelectTool() {
+    selectTool('select');
+  }
+
+  function selectTool(next: 'select' | 'hand') {
+    tool = next;
+    curveSettingsOpen = false;
+    connecting = null;
+    snapTarget = null;
+  }
+
+  function toggleConnectTool() {
+    tool = tool === 'connect' ? 'select' : 'connect';
+    curveSettingsOpen = tool === 'connect';
+    connecting = null;
+    snapTarget = null;
+  }
+
+  function setNavigationMode(mode: 'mouse' | 'touchpad') {
+    doc.navigationMode = mode;
+    persist();
+  }
+
+  export function handleKey(event: KeyboardEvent) {
+    if (event.code === 'Space') {
+      viewport.space = true;
+      event.preventDefault();
+    }
+    if (event.key === 'Escape') {
+      clearSelection();
+      connecting = null;
+      snapTarget = null;
+      tool = 'select';
+      curveSettingsOpen = false;
+    }
+    if (event.key.toLowerCase() === 'n') onaddcard();
+    if (event.key.toLowerCase() === 't') onaddfreetext();
+    if (event.key.toLowerCase() === 'v') selectTool('select');
+    if (event.key.toLowerCase() === 'h') selectTool('hand');
+    if (event.key.toLowerCase() === 'c') toggleConnectTool();
+    if (event.key === 'Delete' && selection.group) deleteGroup(selection.group);
+    else if (event.key === 'Delete' && selection.ids.length)
+      for (const id of [...selection.ids]) onremove(id);
+    if (event.key === '0') fit();
+  }
+
   function marqueeSelect(event: PointerEvent) {
     if (event.button !== 0 || tool !== 'select' || viewport.space) return;
     event.preventDefault();
@@ -246,7 +492,7 @@
         )
         .map((placement) => placement.entityId);
       selection.selected = selection.ids.length === 1 ? selection.ids[0] : '';
-      onfocusclear();
+      onfocus('');
     };
     const finish = () => {
       element.removeEventListener('pointermove', movement);
@@ -305,8 +551,12 @@
       )
     )
       return;
-    if (connecting) return;
+    if (connecting) {
+      connecting = null;
+      return;
+    }
     if (viewport.space || tool === 'hand') {
+      groupEditing = '';
       onclearinteraction();
       pan(event);
     } else marqueeSelect(event);
@@ -328,7 +578,10 @@
     event.preventDefault();
     const rect = element.getBoundingClientRect();
     if ((doc.navigationMode ?? 'touchpad') === 'mouse' || event.ctrlKey || event.metaKey) {
-      const value = Math.max(0.15, Math.min(2.5, doc.camera.zoom * Math.exp(-event.deltaY * 0.002)));
+      const value = Math.max(
+        0.15,
+        Math.min(2.5, doc.camera.zoom * Math.exp(-event.deltaY * 0.002)),
+      );
       const old = doc.camera.zoom;
       const cx = event.clientX - rect.left;
       const cy = event.clientY - rect.top;
@@ -376,7 +629,7 @@
     }
   }}
   onpointermove={(event) => {
-    if (connecting) onupdateconnectionpreview(event);
+    if (connecting) updateConnectionPreview(event);
   }}
   ondragover={(event) => event.preventDefault()}
   {ondrop}
@@ -463,7 +716,42 @@
         </div>{/if}
     {/each}
     <EdgesLayer bind:this={edgesLayer} {connecting} {snapTarget} {cursorWorld} {bezier} />
-    {@render cards()}
+    {#each visible as placement (placement.id)}
+      {@const entity = doc.entities[placement.entityId]}
+      {#if entity}<BoardCard
+          {placement}
+          {entity}
+          {focused}
+          {editingBoard}
+          {tool}
+          {connecting}
+          {snapTarget}
+          {dragging}
+          {onfocus}
+          {onediting}
+          {onopen}
+          {onsource}
+          {onduplicate}
+          {oncolor}
+          {onreorder}
+          {onremove}
+          {onedit}
+          {oneditcommit}
+          {onbeginfreetextedit}
+          {oneditfreetext}
+          {onfinishfreetextedit}
+          onpan={pan}
+          onfinishconnection={finishConnection}
+          onconnectiondrag={connectionDrag}
+          onsetconnection={setConnection}
+          onsetdragging={(value) => (dragging = value)}
+          onrefresh={refreshCard}
+          onselectionmenu={(event) => {
+            const rect = element.getBoundingClientRect();
+            selection.menu = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+          }}
+        />{/if}
+    {/each}
   </div>
   {#if marquee}<div
       class="selection-marquee"
@@ -503,5 +791,189 @@
         >
       </div>{/if}
   {/if}
-  {@render overlays()}
+  <div
+    class="toolbar"
+    role="toolbar"
+    tabindex="-1"
+    aria-label="Whiteboard tools"
+    onpointerdown={(e) => e.stopPropagation()}
+  >
+    <button
+      class:active={tool === 'select'}
+      class="icon-button"
+      title="Select · V"
+      aria-label="Select tool"
+      onclick={() => {
+        tool = 'select';
+        curveSettingsOpen = false;
+        connecting = null;
+        snapTarget = null;
+      }}><MousePointer2 size={19} /></button
+    ><button
+      class:active={tool === 'hand'}
+      class="icon-button"
+      title="Pan · H or hold Space"
+      aria-label="Pan tool"
+      onclick={() => {
+        tool = 'hand';
+        curveSettingsOpen = false;
+        connecting = null;
+        snapTarget = null;
+      }}><Hand size={19} /></button
+    ><span class="tool-divider"></span><button
+      class="icon-button"
+      title="New card · N"
+      aria-label="New card"
+      onclick={() => onaddcard()}><Plus size={20} /></button
+    ><button
+      class="icon-button"
+      title="Free text · T"
+      aria-label="Add free text"
+      onclick={() => onaddfreetext()}><Type size={19} /></button
+    ><button
+      class="icon-button"
+      title="Import PDF, image, or markdown"
+      aria-label="Import files"
+      onclick={onimport}><Upload size={19} /></button
+    ><button
+      class:active={tool === 'connect'}
+      class="icon-button"
+      title="Connect items · C"
+      aria-label="Connect items"
+      aria-pressed={tool === 'connect'}
+      onclick={() => {
+        tool = tool === 'connect' ? 'select' : 'connect';
+        curveSettingsOpen = tool === 'connect';
+        connecting = null;
+        snapTarget = null;
+      }}><Link2 size={19} /></button
+    ><span class="tool-divider"></span><button
+      class="icon-button"
+      title="Undo · Ctrl Z"
+      aria-label="Undo"
+      disabled={!undoStack.length}
+      onclick={undo}><Undo2 size={18} /></button
+    ><button
+      class="icon-button"
+      title="Redo · Ctrl Shift Z"
+      aria-label="Redo"
+      disabled={!redoStack.length}
+      onclick={redo}><Redo2 size={18} /></button
+    >
+  </div>
+  {#if curveSettingsOpen}<div
+      class="curve-settings"
+      role="group"
+      aria-label="Bezier curve settings"
+      onpointerdown={(event) => event.stopPropagation()}
+    >
+      <div class="curve-settings-title">
+        <strong>Bezier curve</strong><button onclick={() => (bezier = { ...defaultBezierConfig })}
+          >Reset</button
+        >
+      </div>
+      <label
+        >Curvature <output>{bezier.curvature.toFixed(2)}</output><input
+          type="range"
+          min="0"
+          max="1.5"
+          step="0.05"
+          bind:value={bezier.curvature}
+        /></label
+      >
+      <label
+        >Minimum pull <output>{bezier.minControlDistance}px</output><input
+          type="range"
+          min="0"
+          max="160"
+          step="5"
+          bind:value={bezier.minControlDistance}
+        /></label
+      >
+      <label
+        >Maximum pull <output>{bezier.maxControlDistance}px</output><input
+          type="range"
+          min="40"
+          max="400"
+          step="10"
+          bind:value={bezier.maxControlDistance}
+        /></label
+      >
+      <label
+        >Source pull <output>{bezier.sourcePull.toFixed(2)}</output><input
+          type="range"
+          min="0"
+          max="2"
+          step="0.05"
+          bind:value={bezier.sourcePull}
+        /></label
+      >
+      <label
+        >Target pull <output>{bezier.targetPull.toFixed(2)}</output><input
+          type="range"
+          min="0"
+          max="2"
+          step="0.05"
+          bind:value={bezier.targetPull}
+        /></label
+      >
+    </div>{/if}
+  <div class="board-hint">
+    {tool === 'connect'
+      ? connecting
+        ? 'Choose a destination dot or release anywhere inside an item'
+        : 'Click or drag from an item dot'
+      : navigationMode === 'mouse'
+        ? 'Middle-drag to pan · Wheel to zoom · Double-click to write'
+        : 'Two-finger pan · Pinch to zoom · Double-click to write'}
+  </div>
+  <div
+    class="navigation-controls"
+    role="toolbar"
+    tabindex="-1"
+    aria-label="Navigation mode"
+    onpointerdown={(event) => event.stopPropagation()}
+  >
+    <button
+      class:active={navigationMode === 'mouse'}
+      class="icon-button"
+      title="Mouse navigation: middle-drag to pan, wheel to zoom"
+      aria-label="Use mouse navigation"
+      aria-pressed={navigationMode === 'mouse'}
+      onclick={() => setNavigationMode('mouse')}><Mouse size={15} /></button
+    ><button
+      class:active={navigationMode === 'touchpad'}
+      class="icon-button"
+      title="Touchpad navigation: two-finger pan, pinch to zoom"
+      aria-label="Use touchpad navigation"
+      aria-pressed={navigationMode === 'touchpad'}
+      onclick={() => setNavigationMode('touchpad')}><Laptop size={15} /></button
+    >
+  </div>
+  <div
+    class="zoom-controls"
+    role="toolbar"
+    tabindex="-1"
+    aria-label="Board zoom"
+    onpointerdown={(e) => e.stopPropagation()}
+  >
+    <button
+      class="icon-button"
+      title="Zoom out"
+      aria-label="Zoom out"
+      onclick={() => zoom(doc.camera.zoom / 1.2)}><Minus size={15} /></button
+    ><button class="zoom-value" title="Reset zoom" onclick={() => zoom(1)}
+      >{Math.round(doc.camera.zoom * 100)}%</button
+    ><button
+      class="icon-button"
+      title="Zoom in"
+      aria-label="Zoom in"
+      onclick={() => zoom(doc.camera.zoom * 1.2)}><Plus size={15} /></button
+    ><span class="tool-divider"></span><button
+      class="icon-button"
+      title="Fit board · 0"
+      aria-label="Fit board"
+      onclick={fit}><Maximize size={15} /></button
+    >
+  </div>
 </div>
