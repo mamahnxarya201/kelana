@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import { ContextMenu, Dialog } from 'bits-ui';
+  import SearchDialog from './components/SearchDialog.svelte';
+  import SettingsDialog from './components/SettingsDialog.svelte';
+  import HelpDialog from './components/HelpDialog.svelte';
   import {
     MousePointer2,
     Hand,
@@ -119,20 +122,14 @@
   let searchOpen = $state(false);
   let helpOpen = $state(false);
   let settingsOpen = $state(false);
-  let settingsQuery = $state('');
   let indexing = $state(0);
   let board: HTMLDivElement;
   let fileInput: HTMLInputElement;
-  let searchInput: HTMLInputElement;
   let notificationTimer: ReturnType<typeof setTimeout>;
   const colors = ['white', 'yellow', 'blue', 'green', 'pink', 'purple'];
   const navigationMode = $derived(doc.navigationMode ?? 'touchpad');
   const whiteboardFont = $derived(doc.whiteboardFont ?? 'inter');
   const interfaceFont = $derived(doc.interfaceFont ?? 'inter');
-  const appearanceMatches = $derived(
-    !settingsQuery.trim() ||
-      'appearance font typography'.includes(settingsQuery.trim().toLowerCase()),
-  );
   const grid = $derived(new SpatialGrid(doc.placements));
   const visible = $derived(
     grid.query(
@@ -153,10 +150,6 @@
     document.documentElement.style.setProperty('--font-ui', fontFamily(interfaceFont));
     document.documentElement.style.setProperty('--font-content', fontFamily(whiteboardFont));
   });
-  function setFont(target: 'whiteboardFont' | 'interfaceFont', value: FontId) {
-    doc[target] = value;
-    persist();
-  }
   function notify(text: string) {
     notice = text;
     clearTimeout(notificationTimer);
@@ -1879,132 +1872,11 @@
 {#if notice}<div class="toast" role="status">
     {notice}<button aria-label="Dismiss" onclick={() => (notice = '')}><X size={14} /></button>
   </div>{/if}
-<Dialog.Root bind:open={searchOpen}
-  ><Dialog.Portal
-    ><Dialog.Overlay class="dialog-overlay" /><Dialog.Content class="search-dialog"
-      ><Dialog.Title class="sr-only">Search your workspace</Dialog.Title><Dialog.Description
-        class="sr-only"
-        >Find cards, free text, highlights, and text inside local PDFs.</Dialog.Description
-      >
-      <div class="search-box">
-        <Search size={19} /><input
-          bind:this={searchInput}
-          bind:value={search.query}
-          oninput={run}
-          placeholder="Search your thoughts and sources…"
-          aria-label="Search query"
-        /><Dialog.Close class="icon-button" aria-label="Close search"><X size={17} /></Dialog.Close>
-      </div>
-      <div class="search-results">
-        {#if !search.query}<p class="muted">
-            Search cards, free text, highlights, and text inside your PDFs.
-          </p>{:else if !search.hits.length}<p class="muted">
-            No matches for “{search.query}”.
-          </p>{:else}{#each search.hits as id}{@const e = doc.entities[id]}<button
-              class="search-result"
-              onclick={() => {
-                if (e.type === 'text') revealOnBoard(id);
-                else open(id);
-                searchOpen = false;
-              }}
-              >{#if e.type === 'text'}<Type size={17} />{:else}<FileText size={17} />{/if}<span
-                ><strong>{e.title}</strong><small
-                  >{e.anchor?.quote ?? e.body.replace(/[#*]/g, '').slice(0, 110)}</small
-                ></span
-              ><ArrowUpRight size={15} /></button
-            >{/each}{/if}{#if indexing}<p class="muted">
-            Indexing {indexing} PDF{indexing > 1 ? 's' : ''}…
-          </p>{/if}
-      </div></Dialog.Content
-    ></Dialog.Portal
-  ></Dialog.Root
->
-<Dialog.Root bind:open={settingsOpen}
-  ><Dialog.Portal
-    ><Dialog.Overlay class="dialog-overlay" /><Dialog.Content class="settings-dialog"
-      ><Dialog.Title class="sr-only">Settings</Dialog.Title><Dialog.Description class="sr-only"
-        >Choose fonts for your content and interface.</Dialog.Description
-      >
-      <aside class="settings-sidebar">
-        <h2>Settings</h2>
-        <label class="settings-search">
-          <span class="sr-only">Search settings</span>
-          <Search size={14} aria-hidden="true" />
-          <input bind:value={settingsQuery} type="search" placeholder="Search" />
-        </label>
-        <nav aria-label="Settings sections">
-          {#if appearanceMatches}<button class="active" aria-current="page"
-              ><span class="settings-nav-icon">Aa</span>Appearance</button
-            >{:else}<p class="settings-empty">No settings found</p>{/if}
-        </nav>
-      </aside>
-      <section class="settings-main">
-        <div class="settings-heading">
-          <div>
-            <small>Appearance</small>
-            <h2>Fonts</h2>
-          </div>
-          <Dialog.Close class="icon-button" aria-label="Close settings"
-            ><X size={17} /></Dialog.Close
-          >
-        </div>
-        {#if appearanceMatches}<div class="settings-group">
-            <label class="font-setting">
-              <span
-                ><strong>Whiteboard font</strong><small
-                  >Cards and writing surfaces. PDF documents are never changed.</small
-                ></span
-              >
-              <select
-                aria-label="Whiteboard font"
-                value={whiteboardFont}
-                onchange={(event) => setFont('whiteboardFont', event.currentTarget.value as FontId)}
-              >
-                {#each fontOptions as font}<option value={font.id}>{font.label}</option>{/each}
-              </select>
-              <span class="font-sample content-sample"
-                ><b>Notes become paths.</b> The quick brown fox jumps over the lazy dog.</span
-              >
-            </label>
-            <label class="font-setting">
-              <span
-                ><strong>Interface font</strong><small
-                  >Menus, controls, dialogs, and application labels.</small
-                ></span
-              >
-              <select
-                aria-label="Interface font"
-                value={interfaceFont}
-                onchange={(event) => setFont('interfaceFont', event.currentTarget.value as FontId)}
-              >
-                {#each fontOptions as font}<option value={font.id}>{font.label}</option>{/each}
-              </select>
-              <span class="font-sample ui-sample"
-                ><b>Thinking space</b> · Search, connect, and keep writing.</span
-              >
-            </label>
-          </div>{:else}<div class="settings-no-results">
-            <Search size={20} aria-hidden="true" />
-            <p>No settings match “{settingsQuery}”.</p>
-          </div>{/if}
-      </section>
-    </Dialog.Content></Dialog.Portal
-  ></Dialog.Root
->
-<Dialog.Root bind:open={helpOpen}
-  ><Dialog.Portal
-    ><Dialog.Overlay class="dialog-overlay" /><Dialog.Content class="help-dialog"
-      ><Dialog.Title>Keep your hands on the thought.</Dialog.Title><Dialog.Description
-        >Shortcuts for your workspace.</Dialog.Description
-      >
-      <dl>
-        {#each [['N', 'New card'], ['V / H', 'Select / pan'], ['Space + drag', 'Pan the board'], ['Mouse mode', 'Middle-drag to pan · wheel to zoom'], ['Touchpad mode', 'Two-finger pan · pinch to zoom'], ['Drag empty space', 'Select multiple cards'], ['Right-click selection', 'Create a group'], ['Delete on a group', 'Remove group, keep its cards'], ['C', 'Connect cards and tune curves'], ['Ctrl / ⌘ K', 'Search locally'], ['Ctrl / ⌘ Z', 'Undo'], ['Ctrl / ⌘ Shift Z', 'Redo'], ['0', 'Fit everything'], ['Enter on a card', 'Open in workbench'], ['Arrow keys on a card', 'Nudge position'], ['Shift F10', 'Card context menu']] as shortcut}<div
-          >
-            <dt>{shortcut[0]}</dt>
-            <dd>{shortcut[1]}</dd>
-          </div>{/each}
-      </dl>
-      <Dialog.Close class="help-close">Back to thinking</Dialog.Close></Dialog.Content
-    ></Dialog.Portal
-  ></Dialog.Root
->
+<SearchDialog
+  bind:open={searchOpen}
+  {indexing}
+  onreveal={revealOnBoard}
+  onopen={open}
+/>
+<SettingsDialog bind:open={settingsOpen} />
+<HelpDialog bind:open={helpOpen} />
