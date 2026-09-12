@@ -45,7 +45,6 @@
     type Change,
     type Anchor,
     type Point,
-    type Group,
     type Edge,
     type ConnectionSide,
     type FontId,
@@ -68,7 +67,7 @@
   } from './lib/doc.svelte';
   import { titleFromMarkdown } from './lib/markdown';
   import { centerOn, centerPoint, fit, point, zoom, viewport } from './lib/viewport.svelte';
-  import { clearSelection, selectGroup, selectOnly, selection } from './lib/selection.svelte';
+  import { clearSelection, selectOnly, selection } from './lib/selection.svelte';
   import {
     isKnown,
     prune,
@@ -103,8 +102,6 @@
   } from './lib/connections';
   let notice = $state('');
   let titleEditing = $state(false);
-  let groupEditing = $state('');
-  let groupEditBefore = '';
   let boardTitleInput: HTMLInputElement;
   let focused = $state('');
   let editingBoard = $state('');
@@ -124,7 +121,6 @@
   let board: Board;
   let fileInput: HTMLInputElement;
   let notificationTimer: ReturnType<typeof setTimeout>;
-  const colors = ['white', 'yellow', 'blue', 'green', 'pink', 'purple'];
   const navigationMode = $derived(doc.navigationMode ?? 'touchpad');
   const whiteboardFont = $derived(doc.whiteboardFont ?? 'inter');
   const interfaceFont = $derived(doc.interfaceFont ?? 'inter');
@@ -591,7 +587,6 @@
   function clearBoardInteraction() {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     titleEditing = false;
-    groupEditing = '';
     clearSelection();
   }
   async function editBoardTitle() {
@@ -599,133 +594,6 @@
     await tick();
     boardTitleInput.focus();
     boardTitleInput.setSelectionRange(doc.title.length, doc.title.length);
-  }
-  async function editGroupLabel(group: Group, input: HTMLInputElement) {
-    selectGroup(group.id);
-    groupEditBefore = group.label;
-    groupEditing = group.id;
-    await tick();
-    input.focus();
-    input.setSelectionRange(group.label.length, group.label.length);
-  }
-  function finishGroupLabel(group: Group, input: HTMLInputElement) {
-    if (groupEditing !== group.id) return;
-    const label = input.value.trim() || 'Untitled group';
-    group.label = label;
-    input.value = label;
-    groupEditing = '';
-    persist();
-  }
-  function cancelGroupLabel(group: Group, input: HTMLInputElement) {
-    group.label = groupEditBefore;
-    input.value = groupEditBefore;
-    groupEditing = '';
-    input.blur();
-  }
-  function groupBounds(group: Group) {
-    if (
-      group.x !== undefined &&
-      group.y !== undefined &&
-      group.width !== undefined &&
-      group.height !== undefined
-    )
-      return { x: group.x, y: group.y, width: group.width, height: group.height };
-    const members = doc.placements.filter((placement) =>
-      group.entityIds.includes(placement.entityId),
-    );
-    if (!members.length) return null;
-    const padding = 24;
-    const minX = Math.min(...members.map((member) => member.x)) - padding;
-    const minY = Math.min(...members.map((member) => member.y)) - padding;
-    const maxX = Math.max(...members.map((member) => member.x + member.width)) + padding;
-    const maxY = Math.max(...members.map((member) => member.y + member.height)) + padding;
-    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
-  }
-  function createGroup() {
-    if (selection.ids.length < 2) return;
-    const before = $state.snapshot(doc.groups ?? []);
-    const members = doc.placements.filter((placement) => selection.ids.includes(placement.entityId));
-    const padding = 24;
-    const x = Math.min(...members.map((member) => member.x)) - padding;
-    const y = Math.min(...members.map((member) => member.y)) - padding;
-    const group: Group = {
-      id: uid('group'),
-      label: 'New group',
-      color: colors[1 + Math.floor(Math.random() * (colors.length - 1))],
-      entityIds: [...selection.ids],
-      x,
-      y,
-      width: Math.max(...members.map((member) => member.x + member.width)) + padding - x,
-      height: Math.max(...members.map((member) => member.y + member.height)) + padding - y,
-    };
-    commit([{ collection: 'document', id: 'groups', before, after: [...before, group] }]);
-    selection.menu = null;
-    selectGroup(group.id);
-    notify('Group created. Edit its label inline.');
-  }
-  function updateGroup(id: string, value: Partial<Group>) {
-    const before = $state.snapshot(doc.groups ?? []);
-    const after = before.map((group) => (group.id === id ? { ...group, ...value } : group));
-    commit([{ collection: 'document', id: 'groups', before, after }]);
-    selection.groupMenu = null;
-  }
-  function deleteGroup(id: string) {
-    const before = $state.snapshot(doc.groups ?? []);
-    const after = before.filter((group) => group.id !== id);
-    commit([{ collection: 'document', id: 'groups', before, after }]);
-    selection.group = '';
-    selection.groupMenu = null;
-    notify('Group removed. Its items are unchanged.');
-  }
-  function resizeGroup(
-    event: PointerEvent,
-    group: Group,
-    direction: 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw',
-  ) {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    selectGroup(group.id);
-    const handle = event.currentTarget as HTMLElement;
-    const box = handle.closest<HTMLElement>('.group-box');
-    const bounds = groupBounds(group);
-    if (!box || !bounds) return;
-    const start = { x: event.clientX, y: event.clientY };
-    let next = { ...bounds };
-    handle.setPointerCapture(event.pointerId);
-    const movement = (moveEvent: PointerEvent) => {
-      const dx = (moveEvent.clientX - start.x) / doc.camera.zoom;
-      const dy = (moveEvent.clientY - start.y) / doc.camera.zoom;
-      next = { ...bounds };
-      if (direction.includes('e')) next.width = Math.max(120, bounds.width + dx);
-      if (direction.includes('s')) next.height = Math.max(80, bounds.height + dy);
-      if (direction.includes('w')) {
-        next.width = Math.max(120, bounds.width - dx);
-        next.x = bounds.x + bounds.width - next.width;
-      }
-      if (direction.includes('n')) {
-        next.height = Math.max(80, bounds.height - dy);
-        next.y = bounds.y + bounds.height - next.height;
-      }
-      box.style.transform = `translate(${next.x}px,${next.y}px)`;
-      box.style.width = `${next.width}px`;
-      box.style.height = `${next.height}px`;
-    };
-    const finish = () => {
-      handle.removeEventListener('pointermove', movement);
-      handle.removeEventListener('pointerup', finish);
-      handle.removeEventListener('pointercancel', finish);
-      if (
-        next.x !== bounds.x ||
-        next.y !== bounds.y ||
-        next.width !== bounds.width ||
-        next.height !== bounds.height
-      )
-        updateGroup(group.id, next);
-    };
-    handle.addEventListener('pointermove', movement);
-    handle.addEventListener('pointerup', finish);
-    handle.addEventListener('pointercancel', finish);
   }
   function resizeCard(
     event: PointerEvent,
@@ -1056,7 +924,7 @@
       connecting = null;
       snapTarget = null;
     }
-    if (e.key === 'Delete' && selection.group) deleteGroup(selection.group);
+    if (e.key === 'Delete' && selection.group) board.deleteGroup(selection.group);
     else if (e.key === 'Delete' && selection.ids.length) {
       for (const id of [...selection.ids]) remove(id);
     }
@@ -1189,75 +1057,8 @@
       onupdateconnectionpreview={updateConnectionPreview}
       ondrop={drop}
       onaddcard={addCard}
+      onnotify={notify}
     >
-      {#snippet groups()}
-        {#each doc.groups ?? [] as group (group.id)}
-          {@const bounds = groupBounds(group)}
-          {#if bounds}<div
-              class={`group-box ${group.color} ${selection.group === group.id ? 'selected' : ''}`}
-              role="group"
-              aria-label={group.label}
-              style={`transform:translate(${bounds.x}px,${bounds.y}px);width:${bounds.width}px;height:${bounds.height}px;--label-scale:${Math.max(1, 1 / doc.camera.zoom)}`}
-              oncontextmenu={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                selectGroup(group.id);
-                const rect = board.getRect();
-                selection.groupMenu = {
-                  id: group.id,
-                  x: event.clientX - rect.left,
-                  y: event.clientY - rect.top,
-                };
-                selection.menu = null;
-              }}
-            >
-              <input
-                class="group-label floating-text-input"
-                class:editing={groupEditing === group.id}
-                aria-label="Group label"
-                aria-readonly={groupEditing !== group.id}
-                readonly={groupEditing !== group.id}
-                tabindex={groupEditing === group.id ? 0 : -1}
-                value={group.label}
-                onpointerdown={(event) => {
-                  event.stopPropagation();
-                  if (groupEditing !== group.id) event.preventDefault();
-                  selectGroup(group.id);
-                }}
-                ondblclick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  editGroupLabel(group, event.currentTarget);
-                }}
-                oninput={(event) => {
-                  group.label = event.currentTarget.value;
-                  persist();
-                }}
-                onblur={(event) => finishGroupLabel(group, event.currentTarget)}
-                onkeydown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    event.currentTarget.blur();
-                  } else if (event.key === 'Escape') {
-                    event.preventDefault();
-                    cancelGroupLabel(group, event.currentTarget);
-                  }
-                }}
-              />
-              {#each ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as direction}<button
-                  class={`group-resize-zone card-resize-zone ${direction}`}
-                  tabindex="-1"
-                  aria-label={`Resize ${group.label} ${direction}`}
-                  onpointerdown={(event) =>
-                    resizeGroup(
-                      event,
-                      group,
-                      direction as 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw',
-                    )}
-                ></button>{/each}
-            </div>{/if}
-        {/each}
-      {/snippet}
       {#snippet cards()}
         {#each visible as p (p.id)}{@const entity = doc.entities[p.entityId]}{#if entity}
             <ContextMenu.Root
@@ -1443,39 +1244,6 @@
           {/if}{/each}
       {/snippet}
       {#snippet overlays()}
-      {#if selection.menu}<div
-          class="floating-menu"
-          role="menu"
-          tabindex="-1"
-          style={`left:${selection.menu.x}px;top:${selection.menu.y}px`}
-          onpointerdown={(event) => event.stopPropagation()}
-        >
-          <button role="menuitem" onclick={createGroup}
-            >Create group from {selection.ids.length} items</button
-          >
-        </div>{/if}
-      {#if selection.groupMenu}{@const activeGroup = (doc.groups ?? []).find(
-          (group) => group.id === selection.groupMenu?.id,
-        )}
-        {#if activeGroup}<div
-            class="floating-menu group-menu"
-            role="menu"
-            tabindex="-1"
-            style={`left:${selection.groupMenu.x}px;top:${selection.groupMenu.y}px`}
-            onpointerdown={(event) => event.stopPropagation()}
-          >
-            <div class="color-row" aria-label="Group color">
-              {#each colors as colorName}<button
-                  class={`swatch ${colorName}`}
-                  aria-label={`Set ${colorName} group color`}
-                  onclick={() => updateGroup(activeGroup.id, { color: colorName })}
-                ></button>{/each}
-            </div>
-            <button class="danger" role="menuitem" onclick={() => deleteGroup(activeGroup.id)}
-              >Delete group</button
-            >
-          </div>{/if}
-      {/if}
       <div
         class="toolbar"
         role="toolbar"
