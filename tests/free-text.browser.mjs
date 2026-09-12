@@ -166,6 +166,74 @@ const run = async () => {
       const after = await cardInfo(page);
       assert(after.width === before.width && after.height === before.height, 'size changed while moving');
     });
+
+    await test('dragging a connection between two cards creates an edge', async () => {
+      // Park the free-text card away from the center so the new card has room.
+      const card = await page.$('.board-card.free-text');
+      const box = await card.boundingBox();
+      await page.mouse.move(box.x + 40, box.y + 10);
+      await page.mouse.down();
+      await page.mouse.move(box.x - 320, box.y - 200, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(200);
+      // Add a second card at the center with the N key, then leave edit mode.
+      // (The workspace starts with seeded cards, so counts are deltas.)
+      await page.keyboard.press('n');
+      await page.waitForTimeout(400);
+      await page.keyboard.press('Escape');
+      await page.mouse.click(60, 60);
+      await page.waitForTimeout(200);
+      // Enter connect mode and drag from the free-text card's right port.
+      await page.keyboard.press('c');
+      await page.waitForTimeout(200);
+      const edgesBefore = await page.$$eval('svg.edges path.connection', (els) => els.length);
+      const entityId = await page.$eval('.board-card.free-text', (el) => el.dataset.entity);
+      const source = await page.$(
+        `.connection-port[data-entity="${entityId}"][data-side="right"]`,
+      );
+      assert(source, 'connection port rendered on the free-text card');
+      const sbox = await source.boundingBox();
+      const others = await page.$$('.board-card:not(.free-text)');
+      assert(others.length >= 1, 'no target card available');
+      const tbox = await others[0].boundingBox();
+      await page.mouse.move(sbox.x + sbox.width / 2, sbox.y + sbox.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(tbox.x + tbox.width / 2, tbox.y + tbox.height / 2, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+      const edges = await page.$$eval('svg.edges path.connection', (els) => els.length);
+      assert(edges === edgesBefore + 1, `expected ${edgesBefore + 1} edges after connection drag, got ${edges}`);
+      await page.keyboard.press('v');
+      await page.waitForTimeout(200);
+    });
+
+    await test('marquee-selecting two cards and creating a group works', async () => {
+      // Marquee select both cards on the empty background.
+      await page.mouse.move(60, 60);
+      await page.mouse.down();
+      await page.mouse.move(1340, 760, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(200);
+      // Right-click to open the multi-selection menu.
+      await page.mouse.click(1340, 760, { button: 'right' });
+      await page.waitForTimeout(300);
+      const item = await page.$('div.floating-menu button');
+      assert(item, 'selection menu did not appear');
+      const label = await item.textContent();
+      const selectedCount = await page.evaluate(
+        () => document.querySelectorAll('.board-card.selected').length,
+      );
+      assert(
+        label.includes(`Create group from ${selectedCount} items`),
+        `unexpected menu item: ${label} (selected: ${selectedCount})`,
+      );
+      await item.click();
+      await page.waitForTimeout(300);
+      const group = await page.$eval('.group-box', (el) => ({
+        label: el.querySelector('.group-label')?.value ?? el.getAttribute('aria-label'),
+      }));
+      assert(group.label === 'New group', `unexpected group label: ${group.label}`);
+    });
   } finally {
     await browser.close();
     server.kill();
