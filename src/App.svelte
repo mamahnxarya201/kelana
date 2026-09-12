@@ -64,6 +64,16 @@
     undoStack,
   } from './lib/doc.svelte';
   import { titleFromMarkdown } from './lib/markdown';
+  import { centerOn, centerPoint, fit, point, zoom, viewport } from './lib/viewport.svelte';
+  import { clearSelection, selectGroup, selectOnly, selection } from './lib/selection.svelte';
+  import {
+    isKnown,
+    prune,
+    remove as searchRemove,
+    run,
+    search,
+    upsert as searchUpsert,
+  } from './lib/search.svelte';
   import {
     fitFreeTextSize,
     measureHeightAt,
@@ -88,16 +98,11 @@
     type BezierConfig,
   } from './lib/connections';
   let notice = $state('');
-  let selected = $state('');
-  let selectedIds = $state<string[]>([]);
-  let selectedGroup = $state('');
   let titleEditing = $state(false);
   let groupEditing = $state('');
   let groupEditBefore = '';
   let boardTitleInput: HTMLInputElement;
   let marquee = $state<{ left: number; top: number; width: number; height: number } | null>(null);
-  let selectionMenu = $state<{ x: number; y: number } | null>(null);
-  let groupMenu = $state<{ id: string; x: number; y: number } | null>(null);
   let focused = $state('');
   let editingBoard = $state('');
   let textEditBefore: { id: string; entity: Entity; placement: Placement } | null = null;
@@ -109,23 +114,16 @@
   let snapTarget = $state<{ entityId: string; side: ConnectionSide } | null>(null);
   let curveSettingsOpen = $state(false);
   let bezier = $state<BezierConfig>({ ...defaultBezierConfig });
-  let space = $state(false);
   let dragging = $state(false);
   let searchOpen = $state(false);
   let helpOpen = $state(false);
   let settingsOpen = $state(false);
   let settingsQuery = $state('');
-  let query = $state('');
-  let hits = $state<string[]>([]);
   let indexing = $state(0);
   let board: HTMLDivElement;
-  let boardWidth = $state(1000);
-  let boardHeight = $state(800);
   let fileInput: HTMLInputElement;
   let searchInput: HTMLInputElement;
   let notificationTimer: ReturnType<typeof setTimeout>;
-  let worker: Worker;
-  let request = 0;
   const colors = ['white', 'yellow', 'blue', 'green', 'pink', 'purple'];
   const navigationMode = $derived(doc.navigationMode ?? 'touchpad');
   const whiteboardFont = $derived(doc.whiteboardFont ?? 'inter');
@@ -139,8 +137,8 @@
     grid.query(
       (-doc.camera.x - 200) / doc.camera.zoom,
       (-doc.camera.y - 200) / doc.camera.zoom,
-      (boardWidth + 400) / doc.camera.zoom,
-      (boardHeight + 400) / doc.camera.zoom,
+      (viewport.width + 400) / doc.camera.zoom,
+      (viewport.height + 400) / doc.camera.zoom,
     ),
   );
   const hasSecondary = $derived(doc.panes.some((p) => p.column === 'secondary'));
@@ -164,29 +162,18 @@
     notificationTimer = setTimeout(() => (notice = ''), 5000);
   }
   setNotifyHandler(notify);
-  const indexedText = new Map<string, string>();
   function updateSearch() {
-    if (!worker) return;
+    const keep = new Set<string>();
     for (const entity of Object.values(doc.entities)) {
+      keep.add(entity.id);
       if (entity.type === 'pdf') {
-        if (!indexedText.has(entity.id)) {
-          indexedText.set(entity.id, entity.assetId ?? entity.title);
-          indexPdf(entity);
-        }
+        if (!isKnown(entity.id)) indexPdf(entity);
         continue;
       }
-      const text = entity.title + ' ' + entity.body + ' ' + (entity.anchor?.quote ?? '');
-      if (indexedText.get(entity.id) !== text) {
-        worker.postMessage({ type: 'upsert', id: entity.id, text });
-        indexedText.set(entity.id, text);
-      }
+      searchUpsert(entity.id, entity.title + ' ' + entity.body + ' ' + (entity.anchor?.quote ?? ''));
     }
-    for (const id of indexedText.keys())
-      if (!doc.entities[id]) {
-        worker.postMessage({ type: 'remove', id });
-        indexedText.delete(id);
-      }
-    if (query) runSearch();
+    prune(keep);
+    if (search.query) run();
   }
   onDocChange(updateSearch);
   function paneChanges(panes: Pane[]) {
@@ -200,9 +187,7 @@
       return;
     }
     focused = id;
-    selected = '';
-    selectedIds = [];
-    selectedGroup = '';
+    clearSelection();
     editingBoard = '';
     commit(paneChanges(openPane($state.snapshot(doc), id)));
     await tick();
@@ -230,12 +215,6 @@
       Object.assign(p, value);
       persist();
     }
-  }
-  function centerPoint(): Point {
-    return {
-      x: (boardWidth / 2 - doc.camera.x) / doc.camera.zoom - 145,
-      y: (boardHeight / 2 - doc.camera.y) / doc.camera.zoom - 100,
-    };
   }
   function place(entityId: string, point = centerPoint()) {
     const type = doc.entities[entityId]?.type;
@@ -280,8 +259,8 @@
     const placement = place(
       id,
       point ?? {
-        x: (boardWidth / 2 - doc.camera.x) / doc.camera.zoom - 44,
-        y: (boardHeight / 2 - doc.camera.y) / doc.camera.zoom - 15,
+        x: (viewport.width / 2 - doc.camera.x) / doc.camera.zoom - 44,
+        y: (viewport.height / 2 - doc.camera.y) / doc.camera.zoom - 15,
       },
     );
     commit([
@@ -334,11 +313,7 @@
         try {
           const cached = await loadPdfText(entity.assetId);
           if (cached !== undefined) {
-            worker?.postMessage({
-              type: 'upsert',
-              id: entity.id,
-              text: entity.title + ' ' + cached,
-            });
+            searchUpsert(entity.id, entity.title + ' ' + cached);
             return;
           }
           const pdf = await acquirePdf(entity.assetId);
@@ -351,8 +326,8 @@
             if (i % 10 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
           }
           await savePdfText(entity.assetId, text);
-          worker?.postMessage({ type: 'upsert', id: entity.id, text: entity.title + ' ' + text });
-          if (query) runSearch();
+          searchUpsert(entity.id, entity.title + ' ' + text);
+          if (search.query) run();
         } catch {
           notify(`Text search could not index ${entity.title}. You can still try opening it.`);
         } finally {
@@ -421,9 +396,9 @@
     for (const e of doc.edges.filter((e) => e.from === id || e.to === id))
       changes.push({ collection: 'edges', id: e.id, before: $state.snapshot(e), after: undefined });
     commit(changes);
-    worker?.postMessage({ type: 'remove', id });
-    selected = '';
-    selectedIds = selectedIds.filter((selectedId) => selectedId !== id);
+    searchRemove(id);
+    selection.selected = '';
+    selection.ids = selection.ids.filter((selectedId) => selectedId !== id);
     notify('Deleted from the workspace. Undo to restore.');
   }
   function reorder(id: string, front: boolean) {
@@ -637,26 +612,13 @@
     editingBoard = '';
     selectOnly(id);
     focused = '';
-    doc.camera.x = boardWidth / 2 - (placement.x + placement.width / 2) * doc.camera.zoom;
-    doc.camera.y = boardHeight / 2 - (placement.y + placement.height / 2) * doc.camera.zoom;
-    persist();
-  }
-  function point(event: { clientX: number; clientY: number }) {
-    const r = board.getBoundingClientRect();
-    return {
-      x: (event.clientX - r.left - doc.camera.x) / doc.camera.zoom,
-      y: (event.clientY - r.top - doc.camera.y) / doc.camera.zoom,
-    };
+    centerOn(placement);
   }
   function clearBoardInteraction() {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     titleEditing = false;
     groupEditing = '';
-    selected = '';
-    selectedIds = [];
-    selectedGroup = '';
-    selectionMenu = null;
-    groupMenu = null;
+    clearSelection();
   }
   async function editBoardTitle() {
     titleEditing = true;
@@ -686,21 +648,6 @@
     groupEditing = '';
     input.blur();
   }
-  function selectOnly(id: string) {
-    selected = id;
-    selectedIds = [id];
-    selectedGroup = '';
-    selectionMenu = null;
-    groupMenu = null;
-  }
-  function selectGroup(id: string) {
-    selected = '';
-    selectedIds = [];
-    selectedGroup = id;
-    focused = '';
-    selectionMenu = null;
-    groupMenu = null;
-  }
   function groupBounds(group: Group) {
     if (
       group.x !== undefined &&
@@ -721,9 +668,9 @@
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
   }
   function createGroup() {
-    if (selectedIds.length < 2) return;
+    if (selection.ids.length < 2) return;
     const before = $state.snapshot(doc.groups ?? []);
-    const members = doc.placements.filter((placement) => selectedIds.includes(placement.entityId));
+    const members = doc.placements.filter((placement) => selection.ids.includes(placement.entityId));
     const padding = 24;
     const x = Math.min(...members.map((member) => member.x)) - padding;
     const y = Math.min(...members.map((member) => member.y)) - padding;
@@ -731,14 +678,14 @@
       id: uid('group'),
       label: 'New group',
       color: colors[1 + Math.floor(Math.random() * (colors.length - 1))],
-      entityIds: [...selectedIds],
+      entityIds: [...selection.ids],
       x,
       y,
       width: Math.max(...members.map((member) => member.x + member.width)) + padding - x,
       height: Math.max(...members.map((member) => member.y + member.height)) + padding - y,
     };
     commit([{ collection: 'document', id: 'groups', before, after: [...before, group] }]);
-    selectionMenu = null;
+    selection.menu = null;
     selectGroup(group.id);
     notify('Group created. Edit its label inline.');
   }
@@ -746,14 +693,14 @@
     const before = $state.snapshot(doc.groups ?? []);
     const after = before.map((group) => (group.id === id ? { ...group, ...value } : group));
     commit([{ collection: 'document', id: 'groups', before, after }]);
-    groupMenu = null;
+    selection.groupMenu = null;
   }
   function deleteGroup(id: string) {
     const before = $state.snapshot(doc.groups ?? []);
     const after = before.filter((group) => group.id !== id);
     commit([{ collection: 'document', id: 'groups', before, after }]);
-    selectedGroup = '';
-    groupMenu = null;
+    selection.group = '';
+    selection.groupMenu = null;
     notify('Group removed. Its items are unchanged.');
   }
   function resizeGroup(
@@ -894,7 +841,7 @@
     handle.addEventListener('pointercancel', finish);
   }
   function marqueeSelect(event: PointerEvent) {
-    if (event.button !== 0 || tool !== 'select' || space) return;
+    if (event.button !== 0 || tool !== 'select' || viewport.space) return;
     event.preventDefault();
     clearBoardInteraction();
     const node = board;
@@ -921,7 +868,7 @@
       const top = Math.min(startWorld.y, currentWorld.y);
       const right = Math.max(startWorld.x, currentWorld.x);
       const bottom = Math.max(startWorld.y, currentWorld.y);
-      selectedIds = doc.placements
+      selection.ids = doc.placements
         .filter(
           (placement) =>
             placement.x < right &&
@@ -930,7 +877,7 @@
             placement.y + placement.height > top,
         )
         .map((placement) => placement.entityId);
-      selected = selectedIds.length === 1 ? selectedIds[0] : '';
+      selection.selected = selection.ids.length === 1 ? selection.ids[0] : '';
       focused = '';
     };
     const finish = () => {
@@ -939,8 +886,8 @@
       node.removeEventListener('pointercancel', finish);
       marquee = null;
       if (!moved) {
-        selected = '';
-        selectedIds = [];
+        selection.selected = '';
+        selection.ids = [];
       }
     };
     node.addEventListener('pointermove', movement);
@@ -988,7 +935,7 @@
       connecting = null;
       return;
     }
-    if (space || tool === 'hand') {
+    if (viewport.space || tool === 'hand') {
       clearBoardInteraction();
       pan(event);
     } else marqueeSelect(event);
@@ -1007,7 +954,7 @@
       finishConnection(p.entityId, nearestConnectionSide(p, point(event)));
       return;
     }
-    if (space || tool === 'hand') {
+    if (viewport.space || tool === 'hand') {
       pan(event);
       return;
     }
@@ -1055,12 +1002,12 @@
   }
   function pan(event: PointerEvent) {
     const middleMouse = event.button === 1;
-    const explicitPan = event.button === 0 && (space || tool === 'hand');
+    const explicitPan = event.button === 0 && (viewport.space || tool === 'hand');
     if (!middleMouse && !explicitPan) return;
     if (
       (event.target as HTMLElement).closest('.board-card') &&
       !middleMouse &&
-      !space &&
+      !viewport.space &&
       tool !== 'hand'
     )
       return;
@@ -1082,25 +1029,13 @@
     node.addEventListener('pointermove', movement);
     node.addEventListener('pointerup', finish);
     node.addEventListener('pointercancel', finish);
-    selected = '';
-    selectedIds = [];
-    selectedGroup = '';
-  }
-  function zoom(value: number, cx = boardWidth / 2, cy = boardHeight / 2) {
-    const z = Math.max(0.15, Math.min(2.5, value));
-    const old = doc.camera.zoom;
-    doc.camera = {
-      x: cx - ((cx - doc.camera.x) * z) / old,
-      y: cy - ((cy - doc.camera.y) * z) / old,
-      zoom: z,
-    };
-    persist();
+    clearSelection();
   }
   function wheel(e: WheelEvent) {
     const card = (e.target as HTMLElement).closest<HTMLElement>('.board-card');
     if (
       card?.dataset.entity &&
-      selectedIds.includes(card.dataset.entity) &&
+      selection.ids.includes(card.dataset.entity) &&
       !e.ctrlKey &&
       !e.metaKey
     ) {
@@ -1121,27 +1056,6 @@
   }
   function setNavigationMode(mode: 'mouse' | 'touchpad') {
     doc.navigationMode = mode;
-    persist();
-  }
-  function fit() {
-    if (!doc.placements.length) {
-      doc.camera = { x: 0, y: 0, zoom: 1 };
-      return;
-    }
-    const minX = Math.min(...doc.placements.map((p) => p.x)),
-      minY = Math.min(...doc.placements.map((p) => p.y));
-    const maxX = Math.max(...doc.placements.map((p) => p.x + p.width)),
-      maxY = Math.max(...doc.placements.map((p) => p.y + p.height));
-    const z = Math.min(
-      1.2,
-      (boardWidth - 100) / (maxX - minX),
-      (boardHeight - 100) / (maxY - minY),
-    );
-    doc.camera = {
-      zoom: Math.max(0.15, z),
-      x: (boardWidth - (maxX - minX) * z) / 2 - minX * z,
-      y: (boardHeight - (maxY - minY) * z) / 2 - minY * z,
-    };
     persist();
   }
   function resize(e: PointerEvent) {
@@ -1262,9 +1176,6 @@
       commit(changes);
     } else if (e.dataTransfer?.files.length) importFiles([...e.dataTransfer.files], point(e));
   }
-  function runSearch() {
-    worker?.postMessage({ type: 'query', query, request: ++request });
-  }
   function key(e: KeyboardEvent) {
     if (!docStatus.loaded || e.defaultPrevented) return;
     const input = (e.target as HTMLElement).closest('input,textarea,[contenteditable="true"]');
@@ -1282,7 +1193,7 @@
     )
       return;
     if (e.code === 'Space') {
-      space = true;
+      viewport.space = true;
       e.preventDefault();
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
@@ -1290,11 +1201,11 @@
       e.shiftKey ? redo() : undo();
     }
     if (e.key === 'Escape') {
-      selected = '';
-      selectedIds = [];
-      selectedGroup = '';
-      selectionMenu = null;
-      groupMenu = null;
+      selection.selected = '';
+      selection.ids = [];
+      selection.group = '';
+      selection.menu = null;
+      selection.groupMenu = null;
       connecting = null;
       snapTarget = null;
       tool = 'select';
@@ -1320,17 +1231,13 @@
       connecting = null;
       snapTarget = null;
     }
-    if (e.key === 'Delete' && selectedGroup) deleteGroup(selectedGroup);
-    else if (e.key === 'Delete' && selectedIds.length) {
-      for (const id of [...selectedIds]) remove(id);
+    if (e.key === 'Delete' && selection.group) deleteGroup(selection.group);
+    else if (e.key === 'Delete' && selection.ids.length) {
+      for (const id of [...selection.ids]) remove(id);
     }
     if (e.key === '0') fit();
   }
   onMount(() => {
-    worker = new Worker(new URL('./lib/search.worker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = (e) => {
-      if (e.data.request === request) hits = e.data.hits.filter((id: string) => doc.entities[id]);
-    };
     let alive = true;
     loadSavedDoc()
       .then((saved) => {
@@ -1349,8 +1256,8 @@
         notify(`Could not load your workspace: ${e.message}. Reload to retry; saving is paused.`);
       });
     const observer = new ResizeObserver((entries) => {
-      boardWidth = entries[0].contentRect.width;
-      boardHeight = entries[0].contentRect.height;
+      viewport.width = entries[0].contentRect.width;
+      viewport.height = entries[0].contentRect.height;
     });
     observer.observe(board);
     board.addEventListener('wheel', wheel, { passive: false });
@@ -1364,7 +1271,6 @@
       alive = false;
       flush();
       observer.disconnect();
-      worker.terminate();
       board.removeEventListener('wheel', wheel);
       document.removeEventListener('visibilitychange', onhide);
       window.removeEventListener('pagehide', onPageHide);
@@ -1376,9 +1282,9 @@
 <svelte:window
   onkeydown={key}
   onkeyup={(e) => {
-    if (e.code === 'Space') space = false;
+    if (e.code === 'Space') viewport.space = false;
   }}
-  onblur={() => (space = false)}
+  onblur={() => (viewport.space = false)}
   onpaste={(e) => {
     if (
       !(e.target as HTMLElement).closest('input,textarea,[contenteditable="true"]') &&
@@ -1455,7 +1361,7 @@
   </header>
   <main inert={!docStatus.loaded}>
     <div
-      class:hand={tool === 'hand' || space}
+      class:hand={tool === 'hand' || viewport.space}
       class:connecting={Boolean(connecting)}
       class="board"
       bind:this={board}
@@ -1463,11 +1369,11 @@
       aria-label="Whiteboard"
       onpointerdown={boardPointerDown}
       oncontextmenu={(event) => {
-        if (selectedIds.length > 1) {
+        if (selection.ids.length > 1) {
           event.preventDefault();
           const rect = board.getBoundingClientRect();
-          selectionMenu = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-          groupMenu = null;
+          selection.menu = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+          selection.groupMenu = null;
         }
       }}
       onpointermove={(event) => {
@@ -1494,7 +1400,7 @@
         {#each doc.groups ?? [] as group (group.id)}
           {@const bounds = groupBounds(group)}
           {#if bounds}<div
-              class={`group-box ${group.color} ${selectedGroup === group.id ? 'selected' : ''}`}
+              class={`group-box ${group.color} ${selection.group === group.id ? 'selection.selected' : ''}`}
               role="group"
               aria-label={group.label}
               style={`transform:translate(${bounds.x}px,${bounds.y}px);width:${bounds.width}px;height:${bounds.height}px;--label-scale:${Math.max(1, 1 / doc.camera.zoom)}`}
@@ -1503,12 +1409,12 @@
                 event.stopPropagation();
                 selectGroup(group.id);
                 const rect = board.getBoundingClientRect();
-                groupMenu = {
+                selection.groupMenu = {
                   id: group.id,
                   x: event.clientX - rect.left,
                   y: event.clientY - rect.top,
                 };
-                selectionMenu = null;
+                selection.menu = null;
               }}
             >
               <input
@@ -1594,7 +1500,7 @@
             <ContextMenu.Root
               ><ContextMenu.Trigger
                 tabindex={0}
-                class={`board-card ${entity.type === 'text' ? 'free-text' : ''} ${entity.color} ${selectedIds.includes(entity.id) || focused === entity.id ? 'selected' : ''} ${editingBoard === entity.id ? 'editing' : ''} ${connecting && connecting.entityId !== entity.id ? 'connection-target' : ''} ${connecting?.entityId === entity.id ? 'connection-source' : ''} ${dragging && selectedIds.includes(entity.id) ? 'dragging' : ''}`}
+                class={`board-card ${entity.type === 'text' ? 'free-text' : ''} ${entity.color} ${selection.ids.includes(entity.id) || focused === entity.id ? 'selection.selected' : ''} ${editingBoard === entity.id ? 'editing' : ''} ${connecting && connecting.entityId !== entity.id ? 'connection-target' : ''} ${connecting?.entityId === entity.id ? 'connection-source' : ''} ${dragging && selection.ids.includes(entity.id) ? 'dragging' : ''}`}
                 data-entity={entity.id}
                 style={`transform:translate(${p.x}px,${p.y}px);width:${p.width}px;height:${p.height}px;z-index:${p.z}`}
                 onpointerdown={(e) => dragCard(e, p)}
@@ -1614,11 +1520,11 @@
                   beginFreeTextEdit(entity.id);
                 }}
                 oncontextmenu={(event) => {
-                  if (selectedIds.length > 1 && selectedIds.includes(entity.id)) {
+                  if (selection.ids.length > 1 && selection.ids.includes(entity.id)) {
                     event.preventDefault();
                     event.stopPropagation();
                     const rect = board.getBoundingClientRect();
-                    selectionMenu = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+                    selection.menu = { x: event.clientX - rect.left, y: event.clientY - rect.top };
                   }
                 }}
                 onkeydown={(e) => {
@@ -1710,7 +1616,7 @@
                     oninput={(body) => edit(entity.id, body)}
                     oncommit={(before) => editCommit(entity.id, before)}
                   />{/if}
-                {#if selectedIds.includes(entity.id) && editingBoard !== entity.id}
+                {#if selection.ids.includes(entity.id) && editingBoard !== entity.id}
                   {#each entity.type === 'text' ? ['n', 'e', 's', 'w'] : ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as direction}<button
                       class={`card-resize-zone ${direction}`}
                       tabindex="-1"
@@ -1779,25 +1685,25 @@
           style={`left:${marquee.left}px;top:${marquee.top}px;width:${marquee.width}px;height:${marquee.height}px`}
           aria-hidden="true"
         ></div>{/if}
-      {#if selectionMenu}<div
+      {#if selection.menu}<div
           class="floating-menu"
           role="menu"
           tabindex="-1"
-          style={`left:${selectionMenu.x}px;top:${selectionMenu.y}px`}
+          style={`left:${selection.menu.x}px;top:${selection.menu.y}px`}
           onpointerdown={(event) => event.stopPropagation()}
         >
           <button role="menuitem" onclick={createGroup}
-            >Create group from {selectedIds.length} items</button
+            >Create group from {selection.ids.length} items</button
           >
         </div>{/if}
-      {#if groupMenu}{@const activeGroup = (doc.groups ?? []).find(
-          (group) => group.id === groupMenu?.id,
+      {#if selection.groupMenu}{@const activeGroup = (doc.groups ?? []).find(
+          (group) => group.id === selection.groupMenu?.id,
         )}
         {#if activeGroup}<div
             class="floating-menu group-menu"
             role="menu"
             tabindex="-1"
-            style={`left:${groupMenu.x}px;top:${groupMenu.y}px`}
+            style={`left:${selection.groupMenu.x}px;top:${selection.groupMenu.y}px`}
             onpointerdown={(event) => event.stopPropagation()}
           >
             <div class="color-row" aria-label="Group color">
@@ -2004,9 +1910,9 @@
         {focused}
         onfocus={(id) => {
           focused = id;
-          selected = '';
-          selectedIds = [];
-          selectedGroup = '';
+          selection.selected = '';
+          selection.ids = [];
+          selection.group = '';
         }}
         onmove={move}
         onclose={close}
@@ -2049,18 +1955,18 @@
       <div class="search-box">
         <Search size={19} /><input
           bind:this={searchInput}
-          bind:value={query}
-          oninput={runSearch}
+          bind:value={search.query}
+          oninput={run}
           placeholder="Search your thoughts and sources…"
           aria-label="Search query"
         /><Dialog.Close class="icon-button" aria-label="Close search"><X size={17} /></Dialog.Close>
       </div>
       <div class="search-results">
-        {#if !query}<p class="muted">
+        {#if !search.query}<p class="muted">
             Search cards, free text, highlights, and text inside your PDFs.
-          </p>{:else if !hits.length}<p class="muted">
-            No matches for “{query}”.
-          </p>{:else}{#each hits as id}{@const e = doc.entities[id]}<button
+          </p>{:else if !search.hits.length}<p class="muted">
+            No matches for “{search.query}”.
+          </p>{:else}{#each search.hits as id}{@const e = doc.entities[id]}<button
               class="search-result"
               onclick={() => {
                 if (e.type === 'text') revealOnBoard(id);
