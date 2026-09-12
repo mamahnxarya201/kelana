@@ -88,7 +88,7 @@
   import { fontFamily, fontOptions } from './lib/fonts';
   import { acquirePdf, releasePdf } from './lib/pdf';
   import Editor from './Editor.svelte';
-  import EdgesLayer from './components/EdgesLayer.svelte';
+  import Board from './components/Board.svelte';
   import FreeText from './components/FreeText.svelte';
   import AssetImage from './AssetImage.svelte';
   import Workbench from './Workbench.svelte';
@@ -106,13 +106,11 @@
   let groupEditing = $state('');
   let groupEditBefore = '';
   let boardTitleInput: HTMLInputElement;
-  let marquee = $state<{ left: number; top: number; width: number; height: number } | null>(null);
   let focused = $state('');
   let editingBoard = $state('');
   let textEditBefore: { id: string; entity: Entity; placement: Placement } | null = null;
   let resizing = $state(false);
   let cursorWorld = $state<Point>({ x: 0, y: 0 });
-  let edgesLayer: EdgesLayer;
   let tool = $state<'select' | 'hand' | 'connect'>('select');
   let connecting = $state<{ entityId: string; side: ConnectionSide } | null>(null);
   let snapTarget = $state<{ entityId: string; side: ConnectionSide } | null>(null);
@@ -123,7 +121,7 @@
   let helpOpen = $state(false);
   let settingsOpen = $state(false);
   let indexing = $state(0);
-  let board: HTMLDivElement;
+  let board: Board;
   let fileInput: HTMLInputElement;
   let notificationTimer: ReturnType<typeof setTimeout>;
   const colors = ['white', 'yellow', 'blue', 'green', 'pink', 'purple'];
@@ -426,7 +424,7 @@
   // --- free-text sizing: engine lives in lib/free-text.ts; this wrapper applies
   // --- the fit to the live placement and refreshes edges/ports ---
   function freeTextHost(id: string) {
-    return board.querySelector<HTMLElement>(`[data-entity="${id}"] .live-editor`);
+    return board.getElement().querySelector<HTMLElement>(`[data-entity="${id}"] .live-editor`);
   }
   function fitFreeText(
     id: string,
@@ -816,60 +814,6 @@
     handle.addEventListener('pointerup', finish);
     handle.addEventListener('pointercancel', finish);
   }
-  function marqueeSelect(event: PointerEvent) {
-    if (event.button !== 0 || tool !== 'select' || viewport.space) return;
-    event.preventDefault();
-    clearBoardInteraction();
-    const node = board;
-    const rect = board.getBoundingClientRect();
-    const startScreen = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-    const startWorld = point(event);
-    let moved = false;
-    node.setPointerCapture(event.pointerId);
-    const movement = (moveEvent: PointerEvent) => {
-      const currentScreen = {
-        x: moveEvent.clientX - rect.left,
-        y: moveEvent.clientY - rect.top,
-      };
-      if (Math.hypot(currentScreen.x - startScreen.x, currentScreen.y - startScreen.y) > 3)
-        moved = true;
-      marquee = {
-        left: Math.min(startScreen.x, currentScreen.x),
-        top: Math.min(startScreen.y, currentScreen.y),
-        width: Math.abs(currentScreen.x - startScreen.x),
-        height: Math.abs(currentScreen.y - startScreen.y),
-      };
-      const currentWorld = point(moveEvent);
-      const left = Math.min(startWorld.x, currentWorld.x);
-      const top = Math.min(startWorld.y, currentWorld.y);
-      const right = Math.max(startWorld.x, currentWorld.x);
-      const bottom = Math.max(startWorld.y, currentWorld.y);
-      selection.ids = doc.placements
-        .filter(
-          (placement) =>
-            placement.x < right &&
-            placement.x + placement.width > left &&
-            placement.y < bottom &&
-            placement.y + placement.height > top,
-        )
-        .map((placement) => placement.entityId);
-      selection.selected = selection.ids.length === 1 ? selection.ids[0] : '';
-      focused = '';
-    };
-    const finish = () => {
-      node.removeEventListener('pointermove', movement);
-      node.removeEventListener('pointerup', finish);
-      node.removeEventListener('pointercancel', finish);
-      marquee = null;
-      if (!moved) {
-        selection.selected = '';
-        selection.ids = [];
-      }
-    };
-    node.addEventListener('pointermove', movement);
-    node.addEventListener('pointerup', finish);
-    node.addEventListener('pointercancel', finish);
-  }
   function updateConnectionPreview(event: PointerEvent) {
     cursorWorld = point(event);
     if (!connecting) {
@@ -896,26 +840,6 @@
         : nearestConnectionSide(targetPlacement, cursorWorld),
     };
   }
-  function boardPointerDown(event: PointerEvent) {
-    if (event.button === 1) {
-      pan(event);
-      return;
-    }
-    if (
-      (event.target as HTMLElement).closest(
-        '.board-card,.toolbar,.zoom-controls,.navigation-controls,.group-label,.floating-menu,.curve-settings',
-      )
-    )
-      return;
-    if (connecting) {
-      connecting = null;
-      return;
-    }
-    if (viewport.space || tool === 'hand') {
-      clearBoardInteraction();
-      pan(event);
-    } else marqueeSelect(event);
-  }
   function dragCard(event: PointerEvent, p: Placement) {
     if (
       (event.target as HTMLElement).closest('button,a,textarea') ||
@@ -931,7 +855,7 @@
       return;
     }
     if (viewport.space || tool === 'hand') {
-      pan(event);
+      board.pan(event);
       return;
     }
     selectOnly(p.entityId);
@@ -976,60 +900,6 @@
     node.addEventListener('pointerup', finish);
     node.addEventListener('pointercancel', cancel);
   }
-  function pan(event: PointerEvent) {
-    const middleMouse = event.button === 1;
-    const explicitPan = event.button === 0 && (viewport.space || tool === 'hand');
-    if (!middleMouse && !explicitPan) return;
-    if (
-      (event.target as HTMLElement).closest('.board-card') &&
-      !middleMouse &&
-      !viewport.space &&
-      tool !== 'hand'
-    )
-      return;
-    event.preventDefault();
-    const node = board;
-    const start = { x: event.clientX, y: event.clientY };
-    const camera = { ...doc.camera };
-    node.setPointerCapture(event.pointerId);
-    const movement = (e: PointerEvent) => {
-      doc.camera.x = camera.x + e.clientX - start.x;
-      doc.camera.y = camera.y + e.clientY - start.y;
-    };
-    const finish = () => {
-      node.removeEventListener('pointermove', movement);
-      node.removeEventListener('pointerup', finish);
-      node.removeEventListener('pointercancel', finish);
-      persist();
-    };
-    node.addEventListener('pointermove', movement);
-    node.addEventListener('pointerup', finish);
-    node.addEventListener('pointercancel', finish);
-    clearSelection();
-  }
-  function wheel(e: WheelEvent) {
-    const card = (e.target as HTMLElement).closest<HTMLElement>('.board-card');
-    if (
-      card?.dataset.entity &&
-      selection.ids.includes(card.dataset.entity) &&
-      !e.ctrlKey &&
-      !e.metaKey
-    ) {
-      e.preventDefault();
-      card.scrollTop += e.deltaY;
-      card.scrollLeft += e.deltaX;
-      return;
-    }
-    e.preventDefault();
-    const r = board.getBoundingClientRect();
-    if (navigationMode === 'mouse' || e.ctrlKey || e.metaKey) {
-      zoom(doc.camera.zoom * Math.exp(-e.deltaY * 0.002), e.clientX - r.left, e.clientY - r.top);
-    } else {
-      doc.camera.x -= e.deltaX;
-      doc.camera.y -= e.deltaY;
-      persist();
-    }
-  }
   function setNavigationMode(mode: 'mouse' | 'touchpad') {
     doc.navigationMode = mode;
     persist();
@@ -1053,15 +923,10 @@
     target.addEventListener('pointercancel', end);
   }
   function refreshEdges(id: string, override: Placement) {
-    edgesLayer.refresh(id, override);
+    board.refreshEdges(id, override);
   }
   function refreshPorts(id: string, placement: Placement) {
-    for (const port of board.querySelectorAll<HTMLElement>('.connection-port')) {
-      if (port.dataset.entity !== id || !port.dataset.side) continue;
-      const anchor = connectionPoint(placement, port.dataset.side as ConnectionSide);
-      port.style.left = `${anchor.x}px`;
-      port.style.top = `${anchor.y}px`;
-    }
+    board.refreshPorts(id, placement);
   }
   function connectionDrag(event: PointerEvent, p: Placement, side: ConnectionSide) {
     if (event.button !== 0) return;
@@ -1215,12 +1080,6 @@
       .catch((e) => {
         notify(`Could not load your workspace: ${e.message}. Reload to retry; saving is paused.`);
       });
-    const observer = new ResizeObserver((entries) => {
-      viewport.width = entries[0].contentRect.width;
-      viewport.height = entries[0].contentRect.height;
-    });
-    observer.observe(board);
-    board.addEventListener('wheel', wheel, { passive: false });
     const onhide = () => {
       if (document.visibilityState === 'hidden') flush();
     };
@@ -1230,8 +1089,6 @@
     return () => {
       alive = false;
       flush();
-      observer.disconnect();
-      board.removeEventListener('wheel', wheel);
       document.removeEventListener('visibilitychange', onhide);
       window.removeEventListener('pagehide', onPageHide);
       clearTimeout(notificationTimer);
@@ -1320,43 +1177,20 @@
     </div>
   </header>
   <main inert={!docStatus.loaded}>
-    <div
-      class:hand={tool === 'hand' || viewport.space}
-      class:connecting={Boolean(connecting)}
-      class="board"
+    <Board
       bind:this={board}
-      role="region"
-      aria-label="Whiteboard"
-      onpointerdown={boardPointerDown}
-      oncontextmenu={(event) => {
-        if (selection.ids.length > 1) {
-          event.preventDefault();
-          const rect = board.getBoundingClientRect();
-          selection.menu = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-          selection.groupMenu = null;
-        }
-      }}
-      onpointermove={(event) => {
-        if (connecting) updateConnectionPreview(event);
-      }}
-      ondragover={(e) => e.preventDefault()}
+      {tool}
+      {connecting}
+      {snapTarget}
+      {cursorWorld}
+      {bezier}
+      onclearinteraction={clearBoardInteraction}
+      onfocusclear={() => (focused = '')}
+      onupdateconnectionpreview={updateConnectionPreview}
       ondrop={drop}
-      ondblclick={(e) => {
-        if (
-          !(e.target as HTMLElement).closest(
-            '.board-card,.toolbar,.zoom-controls,.navigation-controls,.group-box',
-          )
-        ) {
-          e.preventDefault();
-          e.stopPropagation();
-          addCard(point(e));
-        }
-      }}
+      onaddcard={addCard}
     >
-      <div
-        class="scene"
-        style:transform={`translate(${doc.camera.x}px,${doc.camera.y}px) scale(${doc.camera.zoom})`}
-      >
+      {#snippet groups()}
         {#each doc.groups ?? [] as group (group.id)}
           {@const bounds = groupBounds(group)}
           {#if bounds}<div
@@ -1368,7 +1202,7 @@
                 event.preventDefault();
                 event.stopPropagation();
                 selectGroup(group.id);
-                const rect = board.getBoundingClientRect();
+                const rect = board.getRect();
                 selection.groupMenu = {
                   id: group.id,
                   x: event.clientX - rect.left,
@@ -1423,7 +1257,8 @@
                 ></button>{/each}
             </div>{/if}
         {/each}
-        <EdgesLayer bind:this={edgesLayer} {connecting} {snapTarget} {cursorWorld} {bezier} />
+      {/snippet}
+      {#snippet cards()}
         {#each visible as p (p.id)}{@const entity = doc.entities[p.entityId]}{#if entity}
             <ContextMenu.Root
               ><ContextMenu.Trigger
@@ -1451,7 +1286,7 @@
                   if (selection.ids.length > 1 && selection.ids.includes(entity.id)) {
                     event.preventDefault();
                     event.stopPropagation();
-                    const rect = board.getBoundingClientRect();
+                    const rect = board.getRect();
                     selection.menu = { x: event.clientX - rect.left, y: event.clientY - rect.top };
                   }
                 }}
@@ -1606,12 +1441,8 @@
                   onpointerdown={(event) => connectionDrag(event, p, side as ConnectionSide)}
                 ></button>{/each}{/if}
           {/if}{/each}
-      </div>
-      {#if marquee}<div
-          class="selection-marquee"
-          style={`left:${marquee.left}px;top:${marquee.top}px;width:${marquee.width}px;height:${marquee.height}px`}
-          aria-hidden="true"
-        ></div>{/if}
+      {/snippet}
+      {#snippet overlays()}
       {#if selection.menu}<div
           class="floating-menu"
           role="menu"
@@ -1830,7 +1661,8 @@
           onclick={fit}><Maximize size={15} /></button
         >
       </div>
-    </div>
+      {/snippet}
+    </Board>
     {#if docStatus.loaded}<Workbench
         {doc}
         width={benchWidth}
