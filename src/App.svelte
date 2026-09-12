@@ -50,6 +50,14 @@
   } from './lib/model';
   import { loadDoc, saveDoc, saveAsset, loadPdfText, savePdfText } from './lib/storage';
   import { titleFromMarkdown } from './lib/markdown';
+  import {
+    fitFreeTextSize,
+    measureHeightAt,
+    measureNaturalHeight,
+    measureWidthForHeight,
+    FREE_TEXT_MIN_WIDTH,
+    FREE_TEXT_MIN_HEIGHT,
+  } from './lib/free-text';
   import { fontFamily, fontOptions } from './lib/fonts';
   import { acquirePdf, releasePdf } from './lib/pdf';
   import Editor from './Editor.svelte';
@@ -508,39 +516,21 @@
   function freeTextTitle(body: string) {
     return titleFromMarkdown(body);
   }
-  // --- free-text sizing: one dimension is "locked" by the user, the other auto-fits the text ---
-  const FREE_TEXT_MIN_WIDTH = 40;
-  const FREE_TEXT_MIN_HEIGHT = 24;
-  const FREE_TEXT_MAX_WIDTH = 720;
+  // --- free-text sizing: engine lives in lib/free-text.ts; this wrapper applies
+  // --- the fit to the live placement and refreshes edges/ports ---
   function freeTextHost(id: string) {
     return board.querySelector<HTMLElement>(`[data-entity="${id}"] .live-editor`);
   }
-  function freeTextHeightAt(host: HTMLElement, width: number) {
-    host.style.width = `${Math.ceil(width)}px`;
-    const height = host.scrollHeight;
-    host.style.width = '';
-    return height;
-  }
-  function freeTextNaturalWidth(host: HTMLElement) {
-    host.style.width = 'max-content';
-    const width = host.scrollWidth;
-    host.style.width = '';
-    return width;
-  }
-  function freeTextNaturalHeight(host: HTMLElement) {
-    return freeTextHeightAt(host, freeTextNaturalWidth(host));
-  }
-  function freeTextWidthForHeight(host: HTMLElement, height: number) {
-    const max = Math.max(FREE_TEXT_MIN_WIDTH, freeTextNaturalWidth(host));
-    if (max <= FREE_TEXT_MIN_WIDTH || freeTextHeightAt(host, max) > height) return max;
-    let lo = FREE_TEXT_MIN_WIDTH;
-    let hi = max;
-    while (hi - lo > 2) {
-      const mid = Math.ceil((lo + hi) / 2);
-      if (freeTextHeightAt(host, mid) <= height) hi = mid;
-      else lo = mid;
-    }
-    return hi;
+  function fitFreeText(
+    id: string,
+    opts: { lock?: 'width' | 'height'; width?: number; height?: number } = {},
+  ) {
+    const placement = placementsByEntity.get(id);
+    const host = freeTextHost(id);
+    if (!placement || !host) return;
+    fitFreeTextSize(placement, host, opts);
+    refreshEdges(id, placement);
+    refreshPorts(id, placement);
   }
   // Self-healing: whenever a free-text editor's rendered size changes (mount,
   // font settle, text edits, external markdown), re-fit the box around it.
@@ -559,42 +549,6 @@
         freeTextObservers.delete(id);
       },
     };
-  }
-  function fitFreeText(
-    id: string,
-    opts: { lock?: 'width' | 'height'; width?: number; height?: number } = {},
-  ) {
-    const placement = placementsByEntity.get(id);
-    const host = freeTextHost(id);
-    if (!placement || !host) return;
-    const lock = opts.lock ?? placement.locked ?? (placement.autoWidth === false ? 'width' : undefined);
-    if (lock === 'width') {
-      placement.width = Math.max(FREE_TEXT_MIN_WIDTH, Math.ceil(opts.width ?? placement.width));
-      placement.height = Math.max(
-        FREE_TEXT_MIN_HEIGHT,
-        freeTextHeightAt(host, placement.width),
-      );
-    } else if (lock === 'height') {
-      // Height is clamped between one line and the text's natural one-line height.
-      const naturalHeight = freeTextNaturalHeight(host);
-      placement.height = Math.max(
-        FREE_TEXT_MIN_HEIGHT,
-        Math.min(naturalHeight, Math.ceil(opts.height ?? placement.height)),
-      );
-      placement.width = Math.max(
-        FREE_TEXT_MIN_WIDTH,
-        Math.min(2000, freeTextWidthForHeight(host, placement.height)),
-      );
-    } else {
-      const natural = freeTextNaturalWidth(host);
-      placement.width = Math.max(FREE_TEXT_MIN_WIDTH, Math.min(natural, FREE_TEXT_MAX_WIDTH));
-      placement.height = Math.max(
-        FREE_TEXT_MIN_HEIGHT,
-        freeTextHeightAt(host, placement.width),
-      );
-    }
-    refreshEdges(id, placement);
-    refreshPorts(id, placement);
   }
   async function beginFreeTextEdit(id: string, selectAll = false) {
     const entity = doc.entities[id];
@@ -949,9 +903,9 @@
             next.width = Math.max(minimumWidth, before.width - dx);
             next.x = before.x + before.width - next.width;
           }
-          next.height = Math.max(FREE_TEXT_MIN_HEIGHT, freeTextHeightAt(freeHost, next.width));
+          next.height = Math.max(FREE_TEXT_MIN_HEIGHT, measureHeightAt(freeHost, next.width));
         } else {
-          const naturalHeight = freeTextNaturalHeight(freeHost);
+          const naturalHeight = measureNaturalHeight(freeHost);
           if (direction.includes('s'))
             next.height = Math.max(
               FREE_TEXT_MIN_HEIGHT,
@@ -964,7 +918,7 @@
             );
             next.y = before.y + before.height - next.height;
           }
-          next.width = Math.max(minimumWidth, freeTextWidthForHeight(freeHost, next.height));
+          next.width = Math.max(minimumWidth, measureWidthForHeight(freeHost, next.height));
         }
       } else {
         if (direction.includes('e')) next.width = Math.max(minimumWidth, before.width + dx);
