@@ -85,7 +85,8 @@
   import { fontFamily, fontOptions } from './lib/fonts';
   import { acquirePdf, releasePdf } from './lib/pdf';
   import Editor from './Editor.svelte';
-  import LiveEditor from './LiveEditor.svelte';
+  import EdgesLayer from './components/EdgesLayer.svelte';
+  import FreeText from './components/FreeText.svelte';
   import AssetImage from './AssetImage.svelte';
   import Workbench from './Workbench.svelte';
   import {
@@ -108,7 +109,7 @@
   let textEditBefore: { id: string; entity: Entity; placement: Placement } | null = null;
   let resizing = $state(false);
   let cursorWorld = $state<Point>({ x: 0, y: 0 });
-  const edgeNodes = new Map<string, SVGPathElement>();
+  let edgesLayer: EdgesLayer;
   let tool = $state<'select' | 'hand' | 'connect'>('select');
   let connecting = $state<{ entityId: string; side: ConnectionSide } | null>(null);
   let snapTarget = $state<{ entityId: string; side: ConnectionSide } | null>(null);
@@ -444,24 +445,6 @@
     fitFreeTextSize(placement, host, opts);
     refreshEdges(id, placement);
     refreshPorts(id, placement);
-  }
-  // Self-healing: whenever a free-text editor's rendered size changes (mount,
-  // font settle, text edits, external markdown), re-fit the box around it.
-  const freeTextObservers = new Map<string, ResizeObserver>();
-  function observeFreeText(node: HTMLElement, id: string) {
-    let frame = 0;
-    const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => fitFreeText(id));
-    });
-    observer.observe(node);
-    freeTextObservers.set(id, observer);
-    return {
-      destroy() {
-        observer.disconnect();
-        freeTextObservers.delete(id);
-      },
-    };
   }
   async function beginFreeTextEdit(id: string, selectAll = false) {
     const entity = doc.entities[id];
@@ -1076,24 +1059,8 @@
     target.addEventListener('pointerup', end);
     target.addEventListener('pointercancel', end);
   }
-  function edgeNode(node: SVGPathElement, id: string) {
-    edgeNodes.set(id, node);
-    return {
-      destroy() {
-        edgeNodes.delete(id);
-      },
-    };
-  }
   function refreshEdges(id: string, override: Placement) {
-    for (const edge of doc.edges) {
-      if (edge.from !== id && edge.to !== id) continue;
-      const a = edge.from === id ? override : placementsByEntity.get(edge.from),
-        b = edge.to === id ? override : placementsByEntity.get(edge.to);
-      if (a && b)
-        edgeNodes
-          .get(edge.id)
-          ?.setAttribute('d', connectionPath(a, b, edge.fromSide, edge.toSide, bezier));
-    }
+    edgesLayer.refresh(id, override);
   }
   function refreshPorts(id: string, placement: Placement) {
     for (const port of board.querySelectorAll<HTMLElement>('.connection-port')) {
@@ -1400,7 +1367,7 @@
         {#each doc.groups ?? [] as group (group.id)}
           {@const bounds = groupBounds(group)}
           {#if bounds}<div
-              class={`group-box ${group.color} ${selection.group === group.id ? 'selection.selected' : ''}`}
+              class={`group-box ${group.color} ${selection.group === group.id ? 'selected' : ''}`}
               role="group"
               aria-label={group.label}
               style={`transform:translate(${bounds.x}px,${bounds.y}px);width:${bounds.width}px;height:${bounds.height}px;--label-scale:${Math.max(1, 1 / doc.camera.zoom)}`}
@@ -1463,44 +1430,12 @@
                 ></button>{/each}
             </div>{/if}
         {/each}
-        <svg class="edges" aria-hidden="true">
-          <defs
-            ><marker id="arrow" markerWidth="7" markerHeight="7" refX="7" refY="3.5" orient="auto"
-              ><path d="M0 0 L7 3.5 L0 7" fill="none" stroke="#aaa9a1" /></marker
-            ></defs
-          >
-          {#each doc.edges as edge (edge.id)}{@const a = placementsByEntity.get(
-              edge.from,
-            )}{@const b = placementsByEntity.get(edge.to)}
-            {#if a && b}<path
-                use:edgeNode={edge.id}
-                class="connection"
-                d={connectionPath(a, b, edge.fromSide, edge.toSide, bezier)}
-                marker-end="url(#arrow)"
-              />{/if}
-          {/each}
-          {#if connecting && placementsByEntity.has(connecting.entityId)}{@const sourcePlacement =
-              placementsByEntity.get(connecting.entityId)!}{@const targetPlacement = snapTarget
-              ? placementsByEntity.get(snapTarget.entityId)
-              : undefined}<path
-              class="connection-preview"
-              d={snapTarget && targetPlacement
-                ? connectionPath(
-                    sourcePlacement,
-                    targetPlacement,
-                    connecting.side,
-                    snapTarget.side,
-                    bezier,
-                  )
-                : previewPath(sourcePlacement, connecting.side, cursorWorld, bezier)}
-              marker-end="url(#arrow)"
-            />{/if}
-        </svg>
+        <EdgesLayer bind:this={edgesLayer} {connecting} {snapTarget} {cursorWorld} {bezier} />
         {#each visible as p (p.id)}{@const entity = doc.entities[p.entityId]}{#if entity}
             <ContextMenu.Root
               ><ContextMenu.Trigger
                 tabindex={0}
-                class={`board-card ${entity.type === 'text' ? 'free-text' : ''} ${entity.color} ${selection.ids.includes(entity.id) || focused === entity.id ? 'selection.selected' : ''} ${editingBoard === entity.id ? 'editing' : ''} ${connecting && connecting.entityId !== entity.id ? 'connection-target' : ''} ${connecting?.entityId === entity.id ? 'connection-source' : ''} ${dragging && selection.ids.includes(entity.id) ? 'dragging' : ''}`}
+                class={`board-card ${entity.type === 'text' ? 'free-text' : ''} ${entity.color} ${selection.ids.includes(entity.id) || focused === entity.id ? 'selected' : ''} ${editingBoard === entity.id ? 'editing' : ''} ${connecting && connecting.entityId !== entity.id ? 'connection-target' : ''} ${connecting?.entityId === entity.id ? 'connection-source' : ''} ${dragging && selection.ids.includes(entity.id) ? 'dragging' : ''}`}
                 data-entity={entity.id}
                 style={`transform:translate(${p.x}px,${p.y}px);width:${p.width}px;height:${p.height}px;z-index:${p.z}`}
                 onpointerdown={(e) => dragCard(e, p)}
@@ -1574,15 +1509,14 @@
                       /><path d="M9 3v10h4V3Z" fill="currentColor" /></svg
                     ></button
                   >{/if}
-                {#if entity.type === 'text'}<div
-                    class="free-text-fit"
-                    use:observeFreeText={entity.id}
-                  ><LiveEditor
+                {#if entity.type === 'text'}<FreeText
+                    id={entity.id}
                     body={entity.body}
                     editing={editingBoard === entity.id}
                     oninput={(body) => editFreeText(entity.id, body)}
                     onfinish={() => finishFreeTextEdit(entity.id)}
-                  /></div>{:else if doc.camera.zoom < 0.35 && editingBoard !== entity.id}<strong
+                    onfit={refreshEdges}
+                  />{:else if doc.camera.zoom < 0.35 && editingBoard !== entity.id}<strong
                     >{entity.title}</strong
                   >{:else if entity.type === 'pdf'}<div class="pdf-cover">
                     <FileText size={30} strokeWidth={1.2} />
