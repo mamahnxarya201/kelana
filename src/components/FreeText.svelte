@@ -1,9 +1,9 @@
-/**
- * The free-text card body: a live markdown editor that is editable when
- * `editing` and read-only otherwise, self-fitted to its content. Sizing
- * decisions live in lib/free-text.ts; this component owns the observer that
- * keeps the box hugging the text.
- */
+<!--
+  The free-text card body: a live markdown editor that is editable when
+  `editing` and read-only otherwise, self-fitted to its content. Sizing
+  decisions live in lib/free-text.ts; this component owns the observer that
+  keeps the box hugging the text.
+-->
 <script lang="ts">
 import LiveEditor from '../LiveEditor.svelte';
 import { doc } from '../lib/doc.svelte';

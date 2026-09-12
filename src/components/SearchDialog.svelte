@@ -1,7 +1,7 @@
-/**
- * Local search dialog: queries the workspace index (lib/search.svelte.ts)
- * and opens results on the board or in the workbench.
- */
+<!--
+  Local search dialog: queries the workspace index (lib/search.svelte.ts)
+  and opens results on the board or in the workbench.
+-->
 <script lang="ts">
 import { Dialog } from 'bits-ui';
 import { ArrowUpRight, FileText, Search, Type, X } from 'lucide-svelte';

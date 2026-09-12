@@ -58,6 +58,7 @@ const cardInfo = (page) =>
       contentHeight: host.scrollHeight,
       lines: Math.round((host.scrollHeight - 6) / (18 * 1.35)),
       text: card.querySelector('.ProseMirror')?.textContent ?? '',
+      cardText: card.textContent?.trim() ?? '',
     };
   });
 
@@ -96,7 +97,8 @@ const run = async () => {
       await addFreeText();
       const c = await cardInfo(page);
       assert(c, 'free text card exists');
-      assert(c.text === 'New Text', `unexpected content: ${c.text}`);
+      assert(c.text === 'New Text', `unexpected editor content: ${c.text}`);
+      assert(c.cardText === 'New Text', `unexpected card content: ${c.cardText}`);
       assert(c.lines === 1, `expected 1 line, got ${c.lines} (h=${c.height})`);
       assert(c.height <= 34, `box taller than one line: ${c.height}`);
     });
@@ -167,7 +169,7 @@ const run = async () => {
       assert(after.width === before.width && after.height === before.height, 'size changed while moving');
     });
 
-    await test('dragging a connection between two cards creates an edge', async () => {
+    await test('dragging a connection from new free text creates an edge', async () => {
       // Park the free-text card away from the center so the new card has room.
       const card = await page.$('.board-card.free-text');
       const box = await card.boundingBox();

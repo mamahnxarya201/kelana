@@ -1,8 +1,8 @@
-/**
- * SVG layer rendering board edges plus the live connection preview.
- * Exposes refresh(id, override) so drag/resize handlers can update edge
- * geometry without re-rendering the whole layer.
- */
+<!--
+  SVG layer rendering board edges plus the live connection preview.
+  Exposes refresh(id, override) so drag/resize handlers can update edge
+  geometry without re-rendering the whole layer.
+-->
 <script lang="ts">
 import { doc } from '../lib/doc.svelte';
 import { connectionPath, previewPath, type BezierConfig } from '../lib/connections';

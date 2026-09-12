@@ -1,7 +1,7 @@
-/**
- * Appearance settings dialog: font selection for the whiteboard and the
- * interface. Reads/writes doc font settings and persists via lib/doc.
- */
+<!--
+  Appearance settings dialog: font selection for the whiteboard and the
+  interface. Reads/writes doc font settings and persists via lib/doc.
+-->
 <script lang="ts">
 import { Dialog } from 'bits-ui';
 import { Search, X } from 'lucide-svelte';

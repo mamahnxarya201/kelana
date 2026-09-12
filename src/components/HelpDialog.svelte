@@ -1,6 +1,6 @@
-/**
- * Keyboard shortcuts reference. Fully static; visibility controlled via open.
- */
+<!--
+  Keyboard shortcuts reference. Fully static; visibility controlled via open.
+-->
 <script lang="ts">
 import { Dialog } from 'bits-ui';
 
