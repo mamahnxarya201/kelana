@@ -811,8 +811,8 @@ input.floating-text-input.editing:focus {
   gap: 0;
 }
 .item-actions .icon-button {
-  width: 27px;
-  height: 27px;
+  width: 30px;
+  height: 30px;
   color: #7e7c73;
 }
 .item-actions select {

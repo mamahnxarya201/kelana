@@ -17,6 +17,7 @@
   // whose anchor points at this pdf. Annotating stays panel-only, so no
   // selection popup lives here.
   import { doc } from '../lib/doc.svelte';
+  import { selectOnly, selection } from '../lib/selection.svelte';
   const annotations = $derived(
     Object.values(doc.entities).filter(
       (e): e is Entity => e.type === 'annotation' && e.anchor?.pdfId === entity.id,
@@ -62,10 +63,13 @@
     // Select without dragging: header remains the drag handle, the reader
     // itself scrolls. Stop propagation so BoardCard drag / space-pan never
     // starts from inside the pdf.
+    if (!selection.ids.includes(entity.id)) selectOnly(entity.id);
     event.stopPropagation();
   }}
   onwheel={(event) => {
-    // Plain wheel scrolls the pdf, never the board. No ctrl-zoom in cards.
+    // Wheel scrolls the pdf only when the card is selected; otherwise the
+    // board pans/zooms as usual. No ctrl-zoom in cards.
+    if (!selection.ids.includes(entity.id)) return;
     event.stopPropagation();
   }}
 >
