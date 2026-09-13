@@ -27,7 +27,11 @@ export const redoStack: Change[][] = $state([]);
 
 let saveTimer: ReturnType<typeof setTimeout>;
 let writing = Promise.resolve();
-let savingRevision = 0;
+let savingRevision = $state(0);
+/** Monotonic counter of working-copy writes; read via getSaveRevision(). */
+export const getSaveRevision = () => savingRevision;
+/** Identity + revision of the last `.kelana` file write, for the dirty dot. */
+export const fileWrite = $state({ name: '', revision: -1 });
 
 let changeListeners: (() => void)[] = [];
 /**
@@ -58,8 +62,8 @@ export function persist() {
   saveTimer = setTimeout(flush, 250);
 }
 
-export function flush() {
-  if (!loaded() || loadFailed()) return;
+export function flush(): Promise<void> {
+  if (!loaded() || loadFailed()) return Promise.resolve();
   clearTimeout(saveTimer);
   const revision = ++savingRevision;
   const snapshot = $state.snapshot(doc);
@@ -73,6 +77,7 @@ export function flush() {
       docStatus.saveStatus = 'Could not save';
       notifyHandler(`Your changes are still open. Storage failed: ${e.message}`);
     });
+  return writing;
 }
 
 export function commit(changes: Change[]) {
@@ -142,4 +147,18 @@ export async function loadDoc(): Promise<boolean> {
     docStatus.saveStatus = 'Storage unavailable';
     throw e;
   }
+}
+
+/**
+ * Replace the working copy with an imported board (kelana-file-format.md
+ * Phase 2). Undo/redo is session state and resets; listeners reindex via
+ * emitChange; the replacement is flushed immediately so it is durable before
+ * anything else happens.
+ */
+export async function adoptImportedDoc(next: Doc) {
+  undoStack.length = 0;
+  redoStack.length = 0;
+  Object.assign(doc, stabilizeConnectionSides(next));
+  emitChange();
+  await flush();
 }

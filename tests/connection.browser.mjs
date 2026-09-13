@@ -143,18 +143,20 @@ const run = async () => {
       await page.setInputFiles('input[type="file"]', pdfPath);
       await page.waitForSelector('.board-card[data-entity^="pdf:"]', { timeout: 15000 });
       await page.click('.board-card[data-entity^="pdf:"] button[title="Open in workbench"]');
-      await page.waitForSelector('.textLayer span', { timeout: 20000 });
-      // Synthesize a text selection over the first text-layer span, then fire
-      // the pointerup that PdfPage listens on.
+      // Target the workbench reader's page: the board card also renders a
+      // PdfPage now, but its selection handler is intentionally a no-op.
+      await page.waitForSelector('.pdf-flow .textLayer span', { timeout: 20000 });
+      // Synthesize a text selection over the reader's first text-layer span,
+      // then fire the pointerup that PdfPage listens on.
       await page.evaluate(() => {
-        const span = document.querySelector('.textLayer span');
+        const span = document.querySelector('.pdf-flow .textLayer span');
         const range = document.createRange();
         range.selectNodeContents(span);
         const sel = window.getSelection();
         sel.removeAllRanges();
         sel.addRange(range);
         document
-          .querySelector('.pdf-page')
+          .querySelector('.pdf-flow .pdf-page')
           .dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
       });
       await page.waitForSelector('.selection-popover', { timeout: 5000 });

@@ -3,7 +3,8 @@
   import SearchDialog from './components/SearchDialog.svelte';
   import SettingsDialog from './components/SettingsDialog.svelte';
   import HelpDialog from './components/HelpDialog.svelte';
-  import { X, Search, Check, LoaderCircle, Keyboard, Settings } from 'lucide-svelte';
+  import { DropdownMenu } from 'bits-ui';
+  import { X, Search, Check, LoaderCircle, Keyboard, Settings, Menu } from 'lucide-svelte';
   import {
     uid,
     openPane,
@@ -16,13 +17,17 @@
     type Change,
     type Anchor,
     type Point,
+    type Doc,
   } from './lib/model';
-  import { saveAsset, loadPdfText, savePdfText } from './lib/storage';
+  import { saveAsset, loadPdfText, savePdfText, loadFileIdentity, saveFileIdentity } from './lib/storage';
   import {
+    adoptImportedDoc,
     commit,
     doc,
     docStatus,
+    fileWrite,
     flush,
+    getSaveRevision,
     loadDoc as loadSavedDoc,
     onDocChange,
     persist,
@@ -31,6 +36,9 @@
     setNotifyHandler,
     undo,
   } from './lib/doc.svelte';
+  import { saveKelanaWithPicker } from './lib/kelana/fileAccess';
+  import { isKelanaFile, kelanaFilename } from './lib/kelana/schema';
+  import type { ImportStats } from './lib/kelana/container.worker';
   import { titleFromMarkdown } from './lib/markdown';
   import { centerOn, centerPoint, point, viewport } from './lib/viewport.svelte';
   import { clearSelection, selectOnly, selection } from './lib/selection.svelte';
@@ -46,6 +54,7 @@
   import { fontFamily, fontOptions } from './lib/fonts';
   import { acquirePdf, releasePdf } from './lib/pdf';
   import Board from './components/Board.svelte';
+  import OpenBoardDialog from './components/OpenBoardDialog.svelte';
   import Workbench from './Workbench.svelte';
   let notice = $state('');
   let titleEditing = $state(false);
@@ -75,6 +84,71 @@
     notificationTimer = setTimeout(() => (notice = ''), 5000);
   }
   setNotifyHandler(notify);
+  // --- `.kelana` board file export (Phase 1 of kelana-file-format.md): the
+  // --- container worker is created on first export, never at app startup.
+  let container: Worker | undefined;
+  function callContainer<T>(message: unknown, transfer: Transferable[] = []): Promise<T> {
+    container ??= new Worker(new URL('./lib/kelana/container.worker.ts', import.meta.url), {
+      type: 'module',
+    });
+    const worker = container;
+    return new Promise((resolve, reject) => {
+      const onMessage = (event: MessageEvent) => {
+        const message = event.data as { type: string; message?: string };
+        if (message.type === 'error') {
+          cleanup();
+          reject(new Error(message.message ?? 'The board file could not be processed.'));
+        } else {
+          cleanup();
+          resolve(event.data as T);
+        }
+      };
+      const onError = () => {
+        cleanup();
+        reject(new Error('The file worker failed to start.'));
+      };
+      const cleanup = () => {
+        worker.removeEventListener('message', onMessage);
+        worker.removeEventListener('error', onError);
+      };
+      worker.addEventListener('message', onMessage);
+      worker.addEventListener('error', onError);
+      worker.postMessage(message, transfer);
+    });
+  }
+  const requestExport = (board: Doc) =>
+    callContainer<{ bytes: ArrayBuffer; filename: string }>({ type: 'export', doc: board });
+  const requestImport = (bytes: ArrayBuffer) =>
+    callContainer<{ doc: Doc; stats: ImportStats }>({ type: 'import', bytes }, [bytes]);
+  let exporting = $state(false);
+  let explainedFileCopy = false;
+  const fileDirty = $derived(fileWrite.name !== '' && getSaveRevision() > fileWrite.revision);
+  async function exportBoardFile(intent: 'save' | 'saveAs') {
+    if (!docStatus.loaded || exporting) return;
+    exporting = true;
+    try {
+      await flush();
+      const filename = kelanaFilename(doc.title);
+      const { bytes } = await requestExport($state.snapshot(doc));
+      const outcome = await saveKelanaWithPicker(bytes, filename);
+      if (outcome === 'cancelled') return;
+      fileWrite.name = filename;
+      fileWrite.revision = getSaveRevision();
+      await saveFileIdentity({ name: filename });
+      if (intent === 'save') {
+        // The web cannot hold a writable handle yet (Phase 3/desktop); Save
+        // silently produced a new copy — never claim the original was updated.
+        if (!explainedFileCopy) {
+          explainedFileCopy = true;
+          notify('Saved a new copy — the browser can’t overwrite the original.');
+        } else notify(`Saved a copy as ${filename}.`);
+      } else notify(outcome === 'downloaded' ? `Downloaded ${filename}.` : `Saved ${filename}.`);
+    } catch (e) {
+      notify(`Could not save the board file: ${(e as Error).message}`);
+    } finally {
+      exporting = false;
+    }
+  }
   function updateSearch() {
     const keep = new Set<string>();
     for (const entity of Object.values(doc.entities)) {
@@ -188,6 +262,25 @@
     await beginFreeTextEdit(id, true);
   }
   async function importFiles(files: File[], point = centerPoint()) {
+    // A `.kelana` board file (by name or sniffed SQLite magic) opens the whole
+    // board instead of being imported as an asset — and must arrive alone.
+    const isBoardFile = await Promise.all(
+      files.map(
+        async (file) =>
+          /\.kelana$/i.test(file.name) ||
+          isKelanaFile(new Uint8Array(await file.slice(0, 16).arrayBuffer())),
+      ),
+    );
+    const boardCount = isBoardFile.filter(Boolean).length;
+    if (boardCount > 0) {
+      if (files.length > 1 || boardCount > 1) {
+        notify('A board file opens by itself.');
+        return;
+      }
+      pendingBoardFile = files[isBoardFile.indexOf(true)];
+      openBoardDialog = true;
+      return;
+    }
     for (const [i, file] of files.entries()) {
       try {
         const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
@@ -554,6 +647,34 @@
     commit([{ collection: 'placements', id: p.id, before: undefined, after: p }]);
     notify('Highlight placed on the board.');
   }
+  // --- `.kelana` open flow (Phase 2): confirm replacement, then import ---
+  let openBoardDialog = $state(false);
+  let pendingBoardFile = $state<File | null>(null);
+  $effect(() => {
+    if (!openBoardDialog) pendingBoardFile = null;
+  });
+  async function confirmOpenBoard() {
+    const file = pendingBoardFile;
+    openBoardDialog = false;
+    if (!file) return;
+    try {
+      const bytes = await file.arrayBuffer();
+      const { doc: nextDoc, stats } = await requestImport(bytes);
+      await adoptImportedDoc(nextDoc);
+      focused = '';
+      editingBoard = '';
+      clearSelection();
+      fileWrite.name = file.name;
+      fileWrite.revision = getSaveRevision();
+      await saveFileIdentity({ name: file.name });
+      const parts = [`${stats.cards} card${stats.cards === 1 ? '' : 's'}`];
+      if (stats.pdfs) parts.push(`${stats.pdfs} PDF${stats.pdfs === 1 ? '' : 's'}`);
+      if (stats.images) parts.push(`${stats.images} image${stats.images === 1 ? '' : 's'}`);
+      notify(`Opened ${nextDoc.title} — ${parts.join(', ')}.`);
+    } catch (e) {
+      notify((e as Error).message);
+    }
+  }
   function drop(e: DragEvent) {
     e.preventDefault();
     const id = e.dataTransfer?.getData('application/kelana-entity');
@@ -568,6 +689,16 @@
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
       e.preventDefault();
       searchOpen = true;
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      void exportBoardFile(e.shiftKey ? 'saveAs' : 'save');
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
+      e.preventDefault();
+      fileInput.click();
       return;
     }
     if (
@@ -592,6 +723,15 @@
         if (!alive) return;
         updateSearch();
         if (!saved) persist();
+        loadFileIdentity()
+          .then((identity) => {
+            if (identity) {
+              fileWrite.name = identity.name;
+              // The revision counter is session state; the file starts clean.
+              fileWrite.revision = getSaveRevision();
+            }
+          })
+          .catch(() => {});
         // Normalize free-text sizes once the board has rendered: clamp legacy
         // heights and re-hug the text so no broken state survives a reload.
         tick().then(() => {
@@ -639,7 +779,7 @@
   class="file-input"
   type="file"
   bind:this={fileInput}
-  accept="application/pdf,image/*,.md,.markdown,.txt"
+  accept="application/pdf,image/*,.md,.markdown,.txt,.kelana"
   multiple
   onchange={(e) => {
     importFiles([...(e.currentTarget.files ?? [])]);
@@ -648,7 +788,26 @@
 />
 <div class="workspace-shell" style:--bench-width={`${benchWidth}px`}>
   <header class="appbar" class:with-bench={doc.panes.length > 0}>
-    <div class="brand"><img src="/icon.svg" alt="" />kelana</div>
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger class="brand" title="File menu" aria-label="File menu">
+        <img src="/icon.svg" alt="" />kelana<Menu size={14} class="brand-caret" /></DropdownMenu.Trigger
+      >
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content class="file-menu" sideOffset={6} align="start">
+          <DropdownMenu.Item class="file-menu-item item-open" onSelect={() => fileInput.click()}
+            >Open…</DropdownMenu.Item
+          >
+          <DropdownMenu.Item class="file-menu-item item-save" onSelect={() => exportBoardFile('save')}
+            >Save<span class="menu-hint">Ctrl S</span></DropdownMenu.Item
+          >
+          <DropdownMenu.Item
+            class="file-menu-item item-save-as"
+            onSelect={() => exportBoardFile('saveAs')}
+            >Save As…<span class="menu-hint">Ctrl ⇧ S</span></DropdownMenu.Item
+          >
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
     <span class="bar-divider"></span><input
       class="board-title floating-text-input"
       class:editing={titleEditing}
@@ -676,7 +835,10 @@
     />
     <div class="bar-right">
       <span class="save-state" title={docStatus.saveStatus}
-        >{#if docStatus.saveStatus === 'Saving…'}<LoaderCircle
+        >{#if fileWrite.name}<span class="file-chip" title={fileWrite.name}
+            ><span class="file-dot" class:dirty={fileDirty}></span
+            ><span class="file-chip-name">{fileWrite.name}</span></span
+          >{/if}{#if docStatus.saveStatus === 'Saving…'}<LoaderCircle
             size={13}
           />{:else if docStatus.saveStatus === 'Saved on this device'}<Check
             size={13}
@@ -769,3 +931,9 @@
 <SearchDialog bind:open={searchOpen} {indexing} onreveal={revealOnBoard} onopen={open} />
 <SettingsDialog bind:open={settingsOpen} />
 <HelpDialog bind:open={helpOpen} />
+<OpenBoardDialog
+  bind:open={openBoardDialog}
+  currentTitle={doc.title}
+  fileName={pendingBoardFile?.name ?? ''}
+  onconfirm={confirmOpenBoard}
+/>

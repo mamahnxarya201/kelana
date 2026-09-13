@@ -140,6 +140,26 @@ button svg {
   height: 23px;
   border-radius: 6px;
 }
+button.brand {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  padding: 4px 8px;
+  margin: -4px -8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+button.brand:hover {
+  background: rgba(36, 36, 34, 0.06);
+}
+button.brand:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.brand-caret {
+  color: var(--muted);
+}
 .bar-divider {
   height: 16px;
   width: 1px;
@@ -164,6 +184,125 @@ button svg {
   gap: 5px;
   align-items: center;
   margin-right: 15px;
+}
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 150px;
+}
+.file-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border);
+  flex: none;
+}
+.file-dot.dirty {
+  background: var(--accent);
+}
+.file-menu {
+  min-width: 210px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  z-index: 60;
+}
+.file-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.file-menu-item:hover,
+.file-menu-item[data-highlighted] {
+  background: rgba(36, 36, 34, 0.06);
+  outline: none;
+}
+.file-menu-item[data-disabled] {
+  opacity: 0.45;
+  cursor: default;
+}
+.file-menu-item[data-disabled]:hover {
+  background: transparent;
+}
+.menu-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+.open-board-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(430px, calc(100vw - 32px));
+  z-index: 100;
+  padding: 22px 24px 18px;
+  background: #fff;
+  border: 1px solid #d3d2cc;
+  border-radius: 14px;
+  box-shadow: 0 24px 80px #00000024, 0 2px 8px #0000000b;
+}
+.open-board-title {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+.open-board-copy {
+  margin: 0 0 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.open-board-copy strong {
+  color: #242422;
+  font-weight: 600;
+}
+.open-board-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.open-board-button {
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.open-board-button:hover {
+  background: rgba(36, 36, 34, 0.05);
+}
+.open-board-button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.open-board-button.primary:hover {
+  background: #4262df;
 }
 .icon-button {
   width: 32px;

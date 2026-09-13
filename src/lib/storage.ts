@@ -61,6 +61,11 @@ export const loadDoc = () => get<Doc>('documents', 'main');
 export const saveDoc = (doc: Doc) => put('documents', 'main', doc);
 export const loadPdfText = (assetId: string) => get<string>('search', assetId);
 export const savePdfText = (assetId: string, text: string) => put('search', assetId, text);
+export const loadAssetMeta = (id: string) => get<Asset>('assets', id);
+/** File identity lives beside the working copy, never inside doc.json. */
+export type FileIdentity = { name: string };
+export const loadFileIdentity = () => get<FileIdentity>('documents', 'file');
+export const saveFileIdentity = (identity: FileIdentity) => put('documents', 'file', identity);
 export async function saveAsset(file: File): Promise<Asset> {
   const bytes = await file.arrayBuffer();
   const digest = await crypto.subtle.digest('SHA-256', bytes);

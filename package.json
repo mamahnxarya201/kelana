@@ -8,8 +8,9 @@
     "build": "node scripts/copy-pdf-assets.mjs && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "node --import tsx --test src/lib/model.test.ts",
-    "test:browser": "node tests/free-text.browser.mjs && node tests/connection.browser.mjs"
+    "test": "node --import tsx --test src/lib/model.test.ts src/lib/kelana/schema.test.ts",
+    "test:browser": "node tests/free-text.browser.mjs && node tests/connection.browser.mjs && node tests/kelana-file.browser.mjs",
+    "test:container": "node tests/container.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.1.0",
@@ -18,6 +19,7 @@
     "@fontsource-variable/source-serif-4": "^5.3.0",
     "@fontsource-variable/stix-two-text": "^5.3.0",
     "@fontsource/libertinus-serif": "^5.3.0",
+    "@sqlite.org/sqlite-wasm": "^3.53.4-build1",
     "@tiptap/core": "^3.31.3",
     "@tiptap/extension-image": "^3.31.3",
     "@tiptap/markdown": "^3.31.3",
@@ -32,6 +34,7 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
     "@types/node": "^22.0.0",
+    "better-sqlite3": "^13.0.3",
     "playwright": "^1.63.0",
     "prettier": "^3.5.0",
     "prettier-plugin-svelte": "^3.3.0",
