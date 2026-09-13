@@ -26,7 +26,11 @@
   let ratio = $state(1.414);
   let error = $state('');
   onMount(() => {
+    const root = host.closest<HTMLElement>('.pdf-card-scroll');
     const observer = new IntersectionObserver((entries) => (visible = entries[0].isIntersecting), {
+      // Board pdf cards scroll inside their own container; the panel keeps
+      // the default viewport root.
+      root: root ?? undefined,
       rootMargin: '700px',
     });
     observer.observe(host);

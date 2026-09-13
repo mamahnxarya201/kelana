@@ -213,6 +213,40 @@
           { collection: 'entities', id, before: undefined, after: entity },
           { collection: 'placements', id: placement.id, before: undefined, after: placement },
         ]);
+        if (isPdf && asset) {
+          // Size the card from the first page only; afterwards the user can
+          // resize freely like a markdown card.
+          const placementId = placement.id;
+          const before = $state.snapshot(placement);
+          acquirePdf(asset.id)
+            .then(async (pdf) => {
+              try {
+                const page = await pdf.getPage(1);
+                const base = page.getViewport({ scale: 1 });
+                const ratio = base.height / base.width;
+                const target = doc.placements.find((p) => p.id === placementId);
+                if (!target) return;
+                const prev = $state.snapshot(target);
+                const width = 340;
+                const height = Math.round(
+                  Math.min(640, Math.max(280, 36 + width * ratio)),
+                );
+                if (prev.width === width && prev.height === height) return;
+                commit([
+                  {
+                    collection: 'placements',
+                    id: placementId,
+                    before: prev,
+                    after: { ...prev, width, height },
+                  },
+                ]);
+                void before;
+              } finally {
+                releasePdf(asset.id);
+              }
+            })
+            .catch(() => {});
+        }
         notify(`Added ${file.name}`);
       } catch (e) {
         notify(`Could not import ${file.name}: ${(e as Error).message}`);

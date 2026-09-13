@@ -424,6 +424,89 @@ blockquote {
   height: 100%;
   gap: 15px;
 }
+/* Board pdf card: scoped variant, markdown/text rules untouched. */
+.board-card.pdf-card {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: #fff;
+  box-shadow: 0 2px 8px #14141414;
+}
+.board-card.pdf-card:hover {
+  border: 0;
+}
+.pdf-card-frame {
+  display: grid;
+  grid-template-rows: 34px minmax(0, 1fr);
+  min-height: 0;
+  height: 100%;
+}
+.pdf-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 6px 0 12px;
+  background: #fffffff2;
+  border-bottom: 1px solid #eceae3;
+  cursor: grab;
+  user-select: none;
+}
+.pdf-card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: #55534b;
+}
+.pdf-card-open {
+  flex: none;
+  opacity: 0;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #d5d4cd;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 2px 6px #0000000a;
+  transition: opacity 0.12s;
+  cursor: pointer;
+}
+.board-card.pdf-card:hover .pdf-card-open,
+.board-card.pdf-card:focus-within .pdf-card-open,
+.board-card.pdf-card.selected .pdf-card-open {
+  opacity: 1;
+}
+.pdf-card-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  background: #e8e7e2;
+  padding: 0;
+  touch-action: pan-x pan-y;
+  user-select: text;
+  cursor: text;
+  overflow-anchor: none;
+  scrollbar-width: none;
+}
+.pdf-card-scroll::-webkit-scrollbar {
+  display: none;
+}
+.pdf-card-scroll .pdf-page {
+  margin: 0 auto;
+  box-shadow: none;
+  border-radius: 0;
+}
+.pdf-card-error {
+  font-size: 13px;
+  color: #8d4d44;
+  padding: 24px 12px;
+}
 .pdf-cover > svg {
   color: #989589;
 }
@@ -813,7 +896,9 @@ input.floating-text-input.editing:focus {
   font-size: 12px;
   color: #89877f;
   text-align: center;
-  padding: 10px 0 14px;
+  background: #e8e7e2;
+  margin: 0;
+  padding: 6px 0 8px;
 }
 .selection-action {
   display: flex;

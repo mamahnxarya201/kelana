@@ -1,9 +1,10 @@
 <script lang="ts">
   import { ContextMenu } from 'bits-ui';
-  import { ArrowUpRight, FileText, PanelRightOpen } from 'lucide-svelte';
+  import { ArrowUpRight, PanelRightOpen } from 'lucide-svelte';
   import Editor from '../Editor.svelte';
   import AssetImage from '../AssetImage.svelte';
   import FreeText from './FreeText.svelte';
+  import PdfBoardContent from './PdfBoardContent.svelte';
   import { commit, doc } from '../lib/doc.svelte';
   import {
     FREE_TEXT_MIN_HEIGHT,
@@ -227,7 +228,7 @@
   <ContextMenu.Trigger
     bind:ref={card}
     tabindex={0}
-    class={`board-card ${entity.type === 'text' ? 'free-text' : ''} ${entity.color} ${selection.ids.includes(entity.id) || focused === entity.id ? 'selected' : ''} ${editingBoard === entity.id ? 'editing' : ''} ${connecting && connecting.entityId !== entity.id ? 'connection-target' : ''} ${connecting?.entityId === entity.id ? 'connection-source' : ''} ${dragging && selection.ids.includes(entity.id) ? 'dragging' : ''}`}
+    class={`board-card ${entity.type === 'text' ? 'free-text' : ''} ${entity.type === 'pdf' ? 'pdf-card' : ''} ${entity.color} ${selection.ids.includes(entity.id) || focused === entity.id ? 'selected' : ''} ${editingBoard === entity.id ? 'editing' : ''} ${connecting && connecting.entityId !== entity.id ? 'connection-target' : ''} ${connecting?.entityId === entity.id ? 'connection-source' : ''} ${dragging && selection.ids.includes(entity.id) ? 'dragging' : ''}`}
     data-entity={entity.id}
     style={`transform:translate(${placement.x}px,${placement.y}px);width:${placement.width}px;height:${placement.height}px;z-index:${placement.z}`}
     onpointerdown={dragCard}
@@ -282,7 +283,7 @@
     }}
     aria-label={entity.title}
   >
-    {#if entity.type !== 'text'}<button
+    {#if entity.type !== 'text' && entity.type !== 'pdf'}<button
         class="open-card"
         title="Open in workbench"
         aria-label={`Open ${entity.title} in workbench`}
@@ -312,10 +313,33 @@
         onfit={onrefresh}
       />{:else if doc.camera.zoom < 0.35 && editingBoard !== entity.id}<strong
         >{entity.title}</strong
-      >{:else if entity.type === 'pdf'}<div class="pdf-cover">
-        <FileText size={30} strokeWidth={1.2} />
-        <h2>{entity.title}</h2>
-        <span>Open to read and annotate <ArrowUpRight size={14} /></span>
+      >{:else if entity.type === 'pdf'}<div class="pdf-card-frame">
+        <div class="pdf-card-top">
+          <span class="pdf-card-title" title={entity.title}>{entity.title}</span>
+          <button
+            class="pdf-card-open"
+            title="Open in workbench"
+            aria-label={`Open ${entity.title} in workbench`}
+            onpointerdown={(event) => event.stopPropagation()}
+            onclick={(event) => {
+              event.stopPropagation();
+              onopen(entity.id);
+            }}
+            ><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"
+              ><rect
+                x="2"
+                y="3"
+                width="12"
+                height="10"
+                rx="1"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.2"
+              /><path d="M9 3v10h4V3Z" fill="currentColor" /></svg
+            ></button
+          >
+        </div>
+        <PdfBoardContent entity={entity} width={placement.width} />
       </div>{:else if entity.type === 'image'}<AssetImage
         id={entity.assetId!}
         alt={entity.title}
