@@ -53,6 +53,7 @@
     oncolor,
     onreorder,
     onremove,
+    onremoveedge,
     onedit,
     oneditcommit,
     onbeginfreetextedit,
@@ -75,6 +76,7 @@
     oncolor: (id: string, color: string) => void;
     onreorder: (id: string, front: boolean) => void;
     onremove: (id: string) => void;
+    onremoveedge: (id: string) => void;
     onedit: (id: string, body: string) => void;
     oneditcommit: (id: string, before: string) => void;
     onbeginfreetextedit: (id: string) => void;
@@ -403,6 +405,16 @@
     if (placement) cursorWorld = connectionPoint(placement, side);
   }
 
+  function edgeContext(id: string, event: MouseEvent) {
+    const rect = element.getBoundingClientRect();
+    selection.edgeMenu = { id, x: event.clientX - rect.left, y: event.clientY - rect.top };
+  }
+
+  function deleteEdge(id: string) {
+    selection.edgeMenu = null;
+    onremoveedge(id);
+  }
+
   function refreshCard(id: string, placement: Placement) {
     refreshEdges(id, placement);
     refreshPorts(id, placement);
@@ -448,7 +460,8 @@
     if (event.key.toLowerCase() === 'v') selectTool('select');
     if (event.key.toLowerCase() === 'h') selectTool('hand');
     if (event.key.toLowerCase() === 'c') toggleConnectTool();
-    if (event.key === 'Delete' && selection.group) deleteGroup(selection.group);
+    if (event.key === 'Delete' && selection.edge) deleteEdge(selection.edge);
+    else if (event.key === 'Delete' && selection.group) deleteGroup(selection.group);
     else if (event.key === 'Delete' && selection.ids.length)
       for (const id of [...selection.ids]) onremove(id);
     if (event.key === '0') fit();
@@ -502,6 +515,7 @@
       if (!moved) {
         selection.selected = '';
         selection.ids = [];
+        selection.edge = '';
       }
     };
     element.addEventListener('pointermove', movement);
@@ -626,6 +640,7 @@
       const rect = element.getBoundingClientRect();
       selection.menu = { x: event.clientX - rect.left, y: event.clientY - rect.top };
       selection.groupMenu = null;
+      selection.edgeMenu = null;
     }
   }}
   onpointermove={(event) => {
@@ -667,6 +682,7 @@
               y: event.clientY - rect.top,
             };
             selection.menu = null;
+            selection.edgeMenu = null;
           }}
         >
           <input
@@ -715,7 +731,14 @@
             ></button>{/each}
         </div>{/if}
     {/each}
-    <EdgesLayer bind:this={edgesLayer} {connecting} {snapTarget} {cursorWorld} {bezier} />
+    <EdgesLayer
+      bind:this={edgesLayer}
+      {connecting}
+      {snapTarget}
+      {cursorWorld}
+      {bezier}
+      onedgecontextmenu={edgeContext}
+    />
     {#each visible as placement (placement.id)}
       {@const entity = doc.entities[placement.entityId]}
       {#if entity}<BoardCard
@@ -788,6 +811,21 @@
         </div>
         <button class="danger" role="menuitem" onclick={() => deleteGroup(activeGroup.id)}
           >Delete group</button
+        >
+      </div>{/if}
+  {/if}
+  {#if selection.edgeMenu}{@const edge = doc.edges.find(
+      (edge) => edge.id === selection.edgeMenu?.id,
+    )}
+    {#if edge}<div
+        class="floating-menu"
+        role="menu"
+        tabindex="-1"
+        style={`left:${selection.edgeMenu.x}px;top:${selection.edgeMenu.y}px`}
+        onpointerdown={(event) => event.stopPropagation()}
+      >
+        <button class="danger" role="menuitem" onclick={() => deleteEdge(edge.id)}
+          >Delete connection</button
         >
       </div>{/if}
   {/if}

@@ -92,10 +92,22 @@ export type Change = {
   after: unknown;
 };
 export const uid = (prefix: string) => `${prefix}:${crypto.randomUUID()}`;
+/**
+ * Deep plain clone. structuredClone rejects Svelte proxies, and $state.snapshot
+ * can leak them for sub-objects read off the doc, so undo/redo must clone via
+ * plain property enumeration instead.
+ */
+function plainClone<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((v) => plainClone(v)) as T;
+  const out: Record<string, unknown> = {};
+  for (const [key, v] of Object.entries(value)) out[key] = plainClone(v);
+  return out as T;
+}
 export function applyChanges(doc: Doc, changes: Change[], reverse = false): Doc {
-  const next = structuredClone(doc);
+  const next = plainClone(doc);
   for (const c of reverse ? [...changes].reverse() : changes) {
-    const value = structuredClone(reverse ? c.before : c.after);
+    const value = plainClone(reverse ? c.before : c.after);
     if (c.collection === 'entities') {
       if (value === undefined) delete next.entities[c.id];
       else next.entities[c.id] = value as Entity;

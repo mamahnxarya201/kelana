@@ -16,8 +16,6 @@
     type Change,
     type Anchor,
     type Point,
-    type Edge,
-    type ConnectionSide,
   } from './lib/model';
   import { saveAsset, loadPdfText, savePdfText } from './lib/storage';
   import {
@@ -49,7 +47,6 @@
   import { acquirePdf, releasePdf } from './lib/pdf';
   import Board from './components/Board.svelte';
   import Workbench from './Workbench.svelte';
-  import { facingConnectionSides } from './lib/connections';
   let notice = $state('');
   let titleEditing = $state(false);
   let boardTitleInput: HTMLInputElement;
@@ -471,20 +468,15 @@
     await open(e.anchor.pdfId);
     view(e.anchor.pdfId, { page: e.anchor.page, jump: Date.now() });
   }
-  function makeEdge(
-    from: string,
-    to: string,
-    fromSide?: ConnectionSide,
-    toSide?: ConnectionSide,
-    fromPlacement = placementsByEntity.get(from),
-    toPlacement = placementsByEntity.get(to),
-  ): Edge {
-    if ((!fromSide || !toSide) && fromPlacement && toPlacement) {
-      const facing = facingConnectionSides(fromPlacement, toPlacement);
-      fromSide ??= facing[0];
-      toSide ??= facing[1];
-    }
-    return { id: uid('edge'), from, to, fromSide, toSide };
+  function removeEdge(id: string) {
+    const edge = doc.edges.find((edge) => edge.id === id);
+    if (!edge) return;
+    commit([
+      { collection: 'edges', id, before: $state.snapshot(edge), after: undefined },
+    ]);
+    selection.edge = '';
+    selection.edgeMenu = null;
+    notify('Connection deleted. Undo to restore.');
   }
   function revealOnBoard(id: string) {
     const placement = placementsByEntity.get(id);
@@ -525,11 +517,7 @@
   }
   function placeHighlight(id: string) {
     const p = place(id);
-    const edge = makeEdge(doc.entities[id].anchor!.pdfId, id, undefined, undefined, undefined, p);
-    const changes: Change[] = [{ collection: 'placements', id: p.id, before: undefined, after: p }];
-    if (!doc.edges.some((e) => e.from === edge.from && e.to === edge.to))
-      changes.push({ collection: 'edges', id: edge.id, before: undefined, after: edge });
-    commit(changes);
+    commit([{ collection: 'placements', id: p.id, before: undefined, after: p }]);
     notify('Highlight placed on the board.');
   }
   function drop(e: DragEvent) {
@@ -537,15 +525,7 @@
     const id = e.dataTransfer?.getData('application/kelana-entity');
     if (id && doc.entities[id]) {
       const p = place(id, point(e));
-      const changes: Change[] = [
-        { collection: 'placements', id: p.id, before: undefined, after: p },
-      ];
-      const anchor = doc.entities[id].anchor;
-      if (anchor && !doc.edges.some((e) => e.from === anchor.pdfId && e.to === id)) {
-        const edge = makeEdge(anchor.pdfId, id, undefined, undefined, undefined, p);
-        changes.push({ collection: 'edges', id: edge.id, before: undefined, after: edge });
-      }
-      commit(changes);
+      commit([{ collection: 'placements', id: p.id, before: undefined, after: p }]);
     } else if (e.dataTransfer?.files.length) importFiles([...e.dataTransfer.files], point(e));
   }
   function key(e: KeyboardEvent) {
@@ -704,6 +684,7 @@
       oncolor={color}
       onreorder={reorder}
       onremove={remove}
+      onremoveedge={removeEdge}
       onedit={edit}
       oneditcommit={editCommit}
       onbeginfreetextedit={beginFreeTextEdit}

@@ -5,6 +5,7 @@
 -->
 <script lang="ts">
 import { doc } from '../lib/doc.svelte';
+import { selection, selectEdge } from '../lib/selection.svelte';
 import { connectionPath, previewPath, type BezierConfig } from '../lib/connections';
 import type { ConnectionSide, Placement, Point } from '../lib/model';
 
@@ -13,11 +14,13 @@ let {
   snapTarget = null,
   cursorWorld,
   bezier,
+  onedgecontextmenu,
 }: {
   connecting?: { entityId: string; side: ConnectionSide } | null;
   snapTarget?: { entityId: string; side: ConnectionSide } | null;
   cursorWorld: Point;
   bezier: BezierConfig;
+  onedgecontextmenu: (id: string, event: MouseEvent) => void;
 } = $props();
 
 const edgeNodes = new Map<string, SVGPathElement>();
@@ -43,6 +46,18 @@ export function refresh(id: string, override: Placement) {
         ?.setAttribute('d', connectionPath(a, b, edge.fromSide, edge.toSide, bezier));
   }
 }
+
+function edgePointerDown(event: PointerEvent, id: string) {
+  event.stopPropagation();
+  selectEdge(id);
+}
+
+function edgeContextMenu(event: MouseEvent, id: string) {
+  event.preventDefault();
+  event.stopPropagation();
+  selectEdge(id);
+  onedgecontextmenu(id, event);
+}
 </script>
 
 <svg class="edges" aria-hidden="true">
@@ -57,8 +72,15 @@ export function refresh(id: string, override: Placement) {
     {#if a && b}<path
         use:edgeNode={edge.id}
         class="connection"
+        class:selected={selection.edge === edge.id}
         d={connectionPath(a, b, edge.fromSide, edge.toSide, bezier)}
         marker-end="url(#arrow)"
+      /><path
+        class="connection-hit"
+        role="presentation"
+        d={connectionPath(a, b, edge.fromSide, edge.toSide, bezier)}
+        onpointerdown={(event) => edgePointerDown(event, edge.id)}
+        oncontextmenu={(event) => edgeContextMenu(event, edge.id)}
       />{/if}
   {/each}
   {#if connecting && placementsByEntity.has(connecting.entityId)}{@const sourcePlacement =
