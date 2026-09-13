@@ -490,7 +490,7 @@
       type: 'annotation',
       title: anchor.quote.slice(0, 70),
       body: '',
-      color: 'yellow',
+      color: 'white',
       anchor: $state.snapshot(anchor),
     };
     commit([{ collection: 'entities', id, before: undefined, after: e }]);

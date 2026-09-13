@@ -535,6 +535,12 @@ blockquote {
   padding: 0;
   overflow-wrap: anywhere;
 }
+.annotation-card .source-link {
+  display: none;
+}
+.annotation-card:hover .source-link {
+  display: flex;
+}
 .toolbar {
   position: absolute;
   left: 22px;

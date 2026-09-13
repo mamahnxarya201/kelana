@@ -343,18 +343,20 @@
       </div>{:else if entity.type === 'image'}<AssetImage
         id={entity.assetId!}
         alt={entity.title}
-      />{:else if entity.type === 'annotation'}<blockquote>
-        {entity.anchor?.quote}
-      </blockquote>
-      <button
-        class="source-link"
-        onclick={(event) => {
-          event.stopPropagation();
-          onsource(entity);
-        }}
-        >p. {entity.anchor?.page} · {doc.entities[entity.anchor?.pdfId ?? '']?.title ??
-          'Source unavailable'}<ArrowUpRight size={12} /></button
-      >{:else}<Editor
+      />{:else if entity.type === 'annotation'}<div class="annotation-card">
+        <button
+          class="source-link"
+          onclick={(event) => {
+            event.stopPropagation();
+            onsource(entity);
+          }}
+          ><ArrowUpRight size={12} /><span>p. {entity.anchor?.page} · {doc.entities[entity.anchor?.pdfId ?? '']?.title ??
+            'Source unavailable'}</span></button
+        >
+        <blockquote>
+          {entity.anchor?.quote}
+        </blockquote>
+      </div>{:else}<Editor
         body={entity.body}
         activation="double"
         active={editingBoard === entity.id}
