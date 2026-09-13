@@ -304,6 +304,10 @@
           /><path d="M9 3v10h4V3Z" fill="currentColor" /></svg
         ></button
       >{/if}
+    <!-- Scroll host for overflowing card content. Lives inside the card but
+        outside the resize zones, so the zones stay pinned to the card edges
+        even when the content is scrolled (the card itself never scrolls). -->
+    <div class="card-scroll">
     {#if entity.type === 'text'}<FreeText
         id={entity.id}
         body={entity.body}
@@ -325,7 +329,7 @@
               event.stopPropagation();
               onopen(entity.id);
             }}
-            ><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"
+            ><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"
               ><rect
                 x="2"
                 y="3"
@@ -339,7 +343,7 @@
             ></button
           >
         </div>
-        <PdfBoardContent entity={entity} width={placement.width} />
+        <PdfBoardContent entity={entity} width={placement.width} height={placement.height} />
       </div>{:else if entity.type === 'image'}<AssetImage
         id={entity.assetId!}
         alt={entity.title}
@@ -370,6 +374,7 @@
         oninput={(body) => onedit(entity.id, body)}
         oncommit={(before) => oneditcommit(entity.id, before)}
       />{/if}
+    </div>
     {#if selection.ids.includes(entity.id) && editingBoard !== entity.id}
       {#each entity.type === 'text' ? ['n', 'e', 's', 'w'] : ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as direction}<button
           class={`card-resize-zone ${direction}`}

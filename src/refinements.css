@@ -238,8 +238,14 @@
   min-height: 70px;
   cursor: default;
 }
-.board-card.selected,
-.board-card.editing {
+/* Card content scrolls in this inner host, never in the card itself — the
+   resize zones are positioned against the card and must not scroll away. */
+.card-scroll {
+  height: 100%;
+  min-height: 0;
+}
+.board-card.selected .card-scroll,
+.board-card.editing .card-scroll {
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
@@ -248,8 +254,8 @@
   user-select: text;
   touch-action: auto;
 }
-.board-card.selected::-webkit-scrollbar,
-.board-card.editing::-webkit-scrollbar {
+.board-card.selected .card-scroll::-webkit-scrollbar,
+.board-card.editing .card-scroll::-webkit-scrollbar {
   display: none;
 }
 .board-card.editing .editable {
@@ -260,8 +266,11 @@
   pointer-events: none;
 }
 .board-card.selected {
-  outline: 1.5px solid #8399ea;
+  outline: 2.5px solid black;
   outline-offset: 1px;
+}
+.board-card.pdf-card .card-scroll {
+  overflow: hidden;
 }
 .card-resize-zone {
   position: absolute;

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { PDFDocumentProxy } from 'pdfjs-dist';
+  import { ChevronLeft, ChevronRight } from 'lucide-svelte';
   import { acquirePdf, releasePdf } from '../lib/pdf';
   import type { Entity } from '../lib/model';
   import PdfPage from '../PdfPage.svelte';
@@ -8,9 +9,11 @@
   let {
     entity,
     width,
+    height,
   }: {
     entity: Entity;
     width: number;
+    height: number;
   } = $props();
 
   // Read-only mirror of the panel: highlights come from annotation entities
@@ -26,12 +29,17 @@
 
   let pdf = $state<PDFDocumentProxy | null>(null);
   let error = $state('');
-  let scrollHost: HTMLDivElement;
+  let page = $state(1);
+  let pageRatio = $state(0); // page height / width of page 1
 
-  // Card scroll has zero padding: pages bleed edge-to-edge so the pdf
-  // perfectly fits the card at first. Any leftover space after a user
-  // resize shows as grey letterbox instead of a permanent gutter.
   const contentWidth = $derived(Math.max(120, Math.floor(width)));
+  // Flip view shows one page at a time: never wider than the card, never
+  // taller than the area under the header bar.
+  const fitWidth = $derived.by(() => {
+    if (!pageRatio) return contentWidth;
+    const availableHeight = Math.max(80, height - 44);
+    return Math.max(120, Math.floor(Math.min(contentWidth, availableHeight / pageRatio)));
+  });
 
   onMount(() => {
     let alive = true;
@@ -40,9 +48,14 @@
       return;
     }
     acquirePdf(entity.assetId)
-      .then((p) => {
-        if (alive) pdf = p;
-        else releasePdf(entity.assetId!);
+      .then(async (p) => {
+        if (!alive) {
+          releasePdf(entity.assetId!);
+          return;
+        }
+        pdf = p;
+        const base = (await p.getPage(1)).getViewport({ scale: 1 });
+        if (alive) pageRatio = base.height / base.width;
       })
       .catch((e) => {
         if (alive) error = e instanceof Error ? e.message : String(e);
@@ -52,41 +65,69 @@
       if (entity.assetId) releasePdf(entity.assetId);
     };
   });
+
+  function flip(delta: number) {
+    if (!pdf) return;
+    page = Math.min(pdf.numPages, Math.max(1, page + delta));
+  }
 </script>
 
 <div
-  class="pdf-card-scroll"
-  bind:this={scrollHost}
+  class="pdf-card-flip"
   role="document"
   aria-label={`PDF: ${entity.title}`}
   onpointerdown={(event) => {
-    // Select without dragging: header remains the drag handle, the reader
-    // itself scrolls. Stop propagation so BoardCard drag / space-pan never
-    // starts from inside the pdf.
+    // Select without dragging: header remains the drag handle. Stop
+    // propagation so BoardCard drag / space-pan never starts from inside.
     if (!selection.ids.includes(entity.id)) selectOnly(entity.id);
     event.stopPropagation();
   }}
   onwheel={(event) => {
-    // Wheel scrolls the pdf only when the card is selected; otherwise the
-    // board pans/zooms as usual. No ctrl-zoom in cards.
-    if (!selection.ids.includes(entity.id)) return;
+    // Wheel flips pages only when the card is selected (no ctrl/meta — the
+    // board zooms then); at the edges the board's no-op card scroll applies.
+    if (!selection.ids.includes(entity.id) || event.ctrlKey || event.metaKey) return;
+    if (!pdf || pdf.numPages <= 1) {
+      event.stopPropagation();
+      return;
+    }
+    const delta = Math.sign(event.deltaY);
+    const next = page + delta;
+    if (next < 1 || next > pdf.numPages) return;
     event.stopPropagation();
+    page = next;
   }}
 >
   {#if error}
     <p class="pdf-card-error">{error}</p>
   {:else if pdf}
-    {#each Array(pdf.numPages) as _, i}
-      <PdfPage
-        {pdf}
-        number={i + 1}
-        width={contentWidth}
-        visualWidth={contentWidth}
-        pdfId={entity.id}
-        {annotations}
-        onselect={() => {}}
-      />
-    {/each}
+    <PdfPage
+      {pdf}
+      number={page}
+      width={fitWidth}
+      visualWidth={fitWidth}
+      pdfId={entity.id}
+      {annotations}
+      onselect={() => {}}
+    />
+    {#if pdf.numPages > 1}
+      <div class="pdf-flip-bar" role="group" aria-label="PDF pages">
+        <button
+          class="pdf-flip-button"
+          aria-label="Previous page"
+          disabled={page <= 1}
+          onpointerdown={(event) => event.stopPropagation()}
+          onclick={() => flip(-1)}
+        ><ChevronLeft size={15} /></button>
+        <span class="pdf-flip-count">{page} / {pdf.numPages}</span>
+        <button
+          class="pdf-flip-button"
+          aria-label="Next page"
+          disabled={page >= pdf.numPages}
+          onpointerdown={(event) => event.stopPropagation()}
+          onclick={() => flip(1)}
+        ><ChevronRight size={15} /></button>
+      </div>
+    {/if}
   {:else}
     <p class="reader-loading">Opening PDF…</p>
   {/if}

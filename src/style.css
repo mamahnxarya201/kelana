@@ -415,16 +415,16 @@ main {
 }
 .open-card {
   position: absolute;
-  top: 9px;
-  left: 9px;
+  top: 12px;
+  left: 12px;
   z-index: 3;
   opacity: 0;
-  width: 29px;
-  height: 29px;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
   border: 1px solid #d5d4cd;
-  border-radius: 6px;
+  border-radius: 8px;
   background: #fff;
   box-shadow: 0 2px 6px #0000000a;
   transition: opacity 0.12s;
@@ -576,16 +576,16 @@ blockquote {
 }
 .pdf-card-frame {
   display: grid;
-  grid-template-rows: 34px minmax(0, 1fr);
+  grid-template-rows: 44px minmax(0, 1fr);
   min-height: 0;
   height: 100%;
 }
 .pdf-card-top {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
-  padding: 0 6px 0 12px;
+  padding: 0 10px 0 16px;
   background: #fffffff2;
   border-bottom: 1px solid #eceae3;
   cursor: grab;
@@ -597,19 +597,19 @@ blockquote {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: #55534b;
 }
 .pdf-card-open {
   flex: none;
   opacity: 0;
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
   border: 1px solid #d5d4cd;
-  border-radius: 6px;
+  border-radius: 8px;
   background: #fff;
   box-shadow: 0 2px 6px #0000000a;
   transition: opacity 0.12s;
@@ -620,26 +620,71 @@ blockquote {
 .board-card.pdf-card.selected .pdf-card-open {
   opacity: 1;
 }
-.pdf-card-scroll {
+.pdf-card-flip {
+  position: relative;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  overscroll-behavior: contain;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: #e8e7e2;
-  padding: 0;
-  touch-action: pan-x pan-y;
+  overflow: hidden;
   user-select: text;
   cursor: text;
-  overflow-anchor: none;
-  scrollbar-width: none;
 }
-.pdf-card-scroll::-webkit-scrollbar {
-  display: none;
-}
-.pdf-card-scroll .pdf-page {
-  margin: 0 auto;
+.pdf-card-flip .pdf-page {
+  margin: 0;
   box-shadow: none;
   border-radius: 0;
+  flex: none;
+}
+.pdf-flip-bar {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: #fffffff5;
+  border: 1px solid #deddd5;
+  border-radius: 999px;
+  box-shadow: 0 4px 14px #00000022;
+  opacity: 0;
+  transition: opacity 0.12s;
+  pointer-events: none;
+}
+.pdf-card-flip:hover .pdf-flip-bar,
+.pdf-card-flip:focus-within .pdf-flip-bar,
+.board-card.pdf-card.selected .pdf-flip-bar {
+  opacity: 1;
+  pointer-events: auto;
+}
+.pdf-flip-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: #55534b;
+  min-width: 48px;
+  text-align: center;
+  font-family: var(--font-ui);
+}
+.pdf-flip-button {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #55534b;
+  cursor: pointer;
+}
+.pdf-flip-button:hover:not(:disabled) {
+  background: rgba(36, 36, 34, 0.08);
+}
+.pdf-flip-button:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 .pdf-card-error {
   font-size: 13px;
