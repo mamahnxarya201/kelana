@@ -457,10 +457,10 @@
   bottom: -13px;
 }
 .board-card .open-card {
-  top: 7px;
+  top: 6px;
   left: 10px;
-  width: 24px;
-  height: 24px;
+  width: 30px;
+  height: 30px;
   background: transparent;
   border: 0;
   box-shadow: none;
@@ -641,6 +641,39 @@
   background: transparent;
 }
 .live-editor .ProseMirror-focused {
+  outline: 0;
+}
+/* KaTeX math: rendered when read-only, raw LaTeX between delimiters while
+   editing (the node view toggles .editing on the host). */
+.live-editor .math-source {
+  display: none;
+}
+.live-editor .math-inline.editing .math-source {
+  display: inline;
+}
+.live-editor .math-block.editing .math-source {
+  display: block;
+}
+.live-editor .math-inline.editing .math-render,
+.live-editor .math-block.editing .math-render {
+  display: none;
+}
+.live-editor .math-block {
+  display: block;
+  margin: 10px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.live-editor .math-block .katex-display {
+  margin: 0;
+}
+.live-editor .math-block.editing,
+.live-editor .math-inline.editing {
+  font-family: ui-monospace, 'Cascadia Mono', 'Source Code Pro', Menlo, monospace;
+  font-size: 0.92em;
+}
+.live-editor .math-block.editing .math-content,
+.live-editor .math-inline.editing .math-content {
   outline: 0;
 }
 .pdf-flow {

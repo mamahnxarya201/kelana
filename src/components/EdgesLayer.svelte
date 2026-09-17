@@ -63,7 +63,7 @@ function edgeContextMenu(event: MouseEvent, id: string) {
 <svg class="edges" aria-hidden="true">
   <defs
     ><marker id="arrow" markerWidth="7" markerHeight="7" refX="7" refY="3.5" orient="auto"
-      ><path d="M0 0 L7 3.5 L0 7" fill="none" stroke="#aaa9a1" /></marker
+      ><path d="M0 0 L7 3.5 L0 7" fill="none" stroke="#000000" /></marker
     ></defs
   >
   {#each doc.edges as edge (edge.id)}{@const a = placementsByEntity.get(

@@ -291,7 +291,7 @@
           event.stopPropagation();
           onopen(entity.id);
         }}
-        ><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"
+        ><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"
           ><rect
             x="2"
             y="3"
@@ -308,72 +308,74 @@
         outside the resize zones, so the zones stay pinned to the card edges
         even when the content is scrolled (the card itself never scrolls). -->
     <div class="card-scroll">
-    {#if entity.type === 'text'}<FreeText
-        id={entity.id}
-        body={entity.body}
-        editing={editingBoard === entity.id}
-        oninput={(body) => oneditfreetext(entity.id, body)}
-        onfinish={() => onfinishfreetextedit(entity.id)}
-        onfit={onrefresh}
-      />{:else if doc.camera.zoom < 0.35 && editingBoard !== entity.id}<strong
-        >{entity.title}</strong
-      >{:else if entity.type === 'pdf'}<div class="pdf-card-frame">
-        <div class="pdf-card-top">
-          <span class="pdf-card-title" title={entity.title}>{entity.title}</span>
+      {#if entity.type === 'text'}<FreeText
+          id={entity.id}
+          body={entity.body}
+          editing={editingBoard === entity.id}
+          oninput={(body) => oneditfreetext(entity.id, body)}
+          onfinish={() => onfinishfreetextedit(entity.id)}
+          onfit={onrefresh}
+        />{:else if doc.camera.zoom < 0.35 && editingBoard !== entity.id}<strong
+          >{entity.title}</strong
+        >{:else if entity.type === 'pdf'}<div class="pdf-card-frame">
+          <div class="pdf-card-top">
+            <span class="pdf-card-title" title={entity.title}>{entity.title}</span>
+            <button
+              class="pdf-card-open"
+              title="Open in workbench"
+              aria-label={`Open ${entity.title} in workbench`}
+              onpointerdown={(event) => event.stopPropagation()}
+              onclick={(event) => {
+                event.stopPropagation();
+                onopen(entity.id);
+              }}
+              ><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"
+                ><rect
+                  x="2"
+                  y="3"
+                  width="12"
+                  height="10"
+                  rx="1"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.2"
+                /><path d="M9 3v10h4V3Z" fill="currentColor" /></svg
+              ></button
+            >
+          </div>
+          <PdfBoardContent {entity} width={placement.width} height={placement.height} />
+        </div>{:else if entity.type === 'image'}<AssetImage
+          id={entity.assetId!}
+          alt={entity.title}
+        />{:else if entity.type === 'annotation'}<div class="annotation-card">
           <button
-            class="pdf-card-open"
-            title="Open in workbench"
-            aria-label={`Open ${entity.title} in workbench`}
-            onpointerdown={(event) => event.stopPropagation()}
+            class="source-link"
             onclick={(event) => {
               event.stopPropagation();
-              onopen(entity.id);
+              onsource(entity);
             }}
-            ><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"
-              ><rect
-                x="2"
-                y="3"
-                width="12"
-                height="10"
-                rx="1"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.2"
-              /><path d="M9 3v10h4V3Z" fill="currentColor" /></svg
+            ><ArrowUpRight size={12} /><span
+              >p. {entity.anchor?.page} · {doc.entities[entity.anchor?.pdfId ?? '']?.title ??
+                'Source unavailable'}</span
             ></button
           >
-        </div>
-        <PdfBoardContent entity={entity} width={placement.width} height={placement.height} />
-      </div>{:else if entity.type === 'image'}<AssetImage
-        id={entity.assetId!}
-        alt={entity.title}
-      />{:else if entity.type === 'annotation'}<div class="annotation-card">
-        <button
-          class="source-link"
-          onclick={(event) => {
-            event.stopPropagation();
-            onsource(entity);
+          <blockquote>
+            {entity.anchor?.quote}
+          </blockquote>
+        </div>{:else}<Editor
+          body={entity.body}
+          activation="double"
+          active={editingBoard === entity.id}
+          onactive={(value) => {
+            onediting(value ? entity.id : '');
+            if (value) {
+              selectOnly(entity.id);
+              onfocus('');
+            }
           }}
-          ><ArrowUpRight size={12} /><span>p. {entity.anchor?.page} · {doc.entities[entity.anchor?.pdfId ?? '']?.title ??
-            'Source unavailable'}</span></button
-        >
-        <blockquote>
-          {entity.anchor?.quote}
-        </blockquote>
-      </div>{:else}<Editor
-        body={entity.body}
-        activation="double"
-        active={editingBoard === entity.id}
-        onactive={(value) => {
-          onediting(value ? entity.id : '');
-          if (value) {
-            selectOnly(entity.id);
-            onfocus('');
-          }
-        }}
-        oninput={(body) => onedit(entity.id, body)}
-        oncommit={(before) => oneditcommit(entity.id, before)}
-      />{/if}
+          oninput={(body) => onedit(entity.id, body)}
+          oncommit={(before) => oneditcommit(entity.id, before)}
+        />{/if}
     </div>
     {#if selection.ids.includes(entity.id) && editingBoard !== entity.id}
       {#each entity.type === 'text' ? ['n', 'e', 's', 'w'] : ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as direction}<button

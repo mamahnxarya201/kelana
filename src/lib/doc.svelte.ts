@@ -7,7 +7,7 @@
  * backbone, not a UI concern.
  */
 import { applyChanges, seed, type Change, type Doc } from './model';
-import { loadDoc as storageLoadDoc, saveDoc } from './storage';
+import { clearAll, saveDoc } from './storage';
 import { facingConnectionSides } from './connections';
 
 export const doc = $state<Doc>(seed());
@@ -134,14 +134,16 @@ function stabilizeConnectionSides(value: Doc): Doc {
   return value;
 }
 
-/** Load the persisted doc (if any). Resolves with whether a doc was loaded. */
-export async function loadDoc(): Promise<boolean> {
+/**
+ * Every app start opens on an empty database: the persisted working copy is
+ * destroyed, never auto-restored. The `.kelana` file is the durable artifact
+ * and is opened explicitly; until then the seed board shows.
+ */
+export async function startEmptyDoc(): Promise<void> {
   try {
-    const saved = await storageLoadDoc();
-    if (saved) Object.assign(doc, stabilizeConnectionSides(saved));
+    await clearAll();
     docStatus.loaded = true;
-    docStatus.saveStatus = 'Saved on this device';
-    return !!saved;
+    docStatus.saveStatus = 'Not saved on this device';
   } catch (e) {
     docStatus.loadFailed = true;
     docStatus.saveStatus = 'Storage unavailable';

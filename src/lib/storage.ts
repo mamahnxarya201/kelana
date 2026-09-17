@@ -111,3 +111,19 @@ export async function loadAsset(id: string) {
   if (!blob) throw new Error('The local asset is missing.');
   return blob;
 }
+/** Destroy every persisted record — the app always starts from an empty database. */
+export async function clearAll() {
+  const d = await db();
+  await Promise.all(
+    ['documents', 'assets', 'blobs', 'search'].map(
+      (store) =>
+        new Promise<void>((resolve, reject) => {
+          const t = d.transaction(store, 'readwrite');
+          t.objectStore(store).clear();
+          t.oncomplete = () => resolve();
+          t.onerror = () => reject(t.error);
+          t.onabort = () => reject(t.error ?? new Error('Storage transaction aborted'));
+        }),
+    ),
+  );
+}

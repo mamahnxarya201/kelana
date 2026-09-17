@@ -19,7 +19,7 @@
     type Point,
     type Doc,
   } from './lib/model';
-  import { saveAsset, loadPdfText, savePdfText, loadFileIdentity, saveFileIdentity } from './lib/storage';
+  import { saveAsset, loadPdfText, savePdfText, saveFileIdentity } from './lib/storage';
   import {
     adoptImportedDoc,
     commit,
@@ -28,12 +28,12 @@
     fileWrite,
     flush,
     getSaveRevision,
-    loadDoc as loadSavedDoc,
     onDocChange,
     persist,
     record,
     redo,
     setNotifyHandler,
+    startEmptyDoc,
     undo,
   } from './lib/doc.svelte';
   import { saveKelanaWithPicker } from './lib/kelana/fileAccess';
@@ -321,9 +321,7 @@
                 if (!target) return;
                 const prev = $state.snapshot(target);
                 const width = 340;
-                const height = Math.round(
-                  Math.min(640, Math.max(280, 36 + width * ratio)),
-                );
+                const height = Math.round(Math.min(640, Math.max(280, 36 + width * ratio)));
                 if (prev.width === width && prev.height === height) return;
                 commit([
                   {
@@ -598,9 +596,7 @@
   function removeEdge(id: string) {
     const edge = doc.edges.find((edge) => edge.id === id);
     if (!edge) return;
-    commit([
-      { collection: 'edges', id, before: $state.snapshot(edge), after: undefined },
-    ]);
+    commit([{ collection: 'edges', id, before: $state.snapshot(edge), after: undefined }]);
     selection.edge = '';
     selection.edgeMenu = null;
     notify('Connection deleted. Undo to restore.');
@@ -718,30 +714,18 @@
   }
   onMount(() => {
     let alive = true;
-    loadSavedDoc()
-      .then((saved) => {
+    startEmptyDoc()
+      .then(() => {
         if (!alive) return;
         updateSearch();
-        if (!saved) persist();
-        loadFileIdentity()
-          .then((identity) => {
-            if (identity) {
-              fileWrite.name = identity.name;
-              // The revision counter is session state; the file starts clean.
-              fileWrite.revision = getSaveRevision();
-            }
-          })
-          .catch(() => {});
-        // Normalize free-text sizes once the board has rendered: clamp legacy
-        // heights and re-hug the text so no broken state survives a reload.
+        // Re-hug free text once the board has rendered.
         tick().then(() => {
           for (const p of doc.placements)
             if (doc.entities[p.entityId]?.type === 'text') fitFreeText(p.entityId);
-          persist();
         });
       })
       .catch((e) => {
-        notify(`Could not load your workspace: ${e.message}. Reload to retry; saving is paused.`);
+        notify(`Could not open your workspace: ${e.message}. Reload to retry; saving is paused.`);
       });
     const onhide = () => {
       if (document.visibilityState === 'hidden') flush();
@@ -790,14 +774,16 @@
   <header class="appbar" class:with-bench={doc.panes.length > 0}>
     <DropdownMenu.Root>
       <DropdownMenu.Trigger class="brand" title="File menu" aria-label="File menu">
-        <img src="/icon.svg" alt="" />kelana<Menu size={14} class="brand-caret" /></DropdownMenu.Trigger
+        <Menu size={16} /></DropdownMenu.Trigger
       >
       <DropdownMenu.Portal>
         <DropdownMenu.Content class="file-menu" sideOffset={6} align="start">
           <DropdownMenu.Item class="file-menu-item item-open" onSelect={() => fileInput.click()}
             >Open…</DropdownMenu.Item
           >
-          <DropdownMenu.Item class="file-menu-item item-save" onSelect={() => exportBoardFile('save')}
+          <DropdownMenu.Item
+            class="file-menu-item item-save"
+            onSelect={() => exportBoardFile('save')}
             >Save<span class="menu-hint">Ctrl S</span></DropdownMenu.Item
           >
           <DropdownMenu.Item
@@ -836,8 +822,9 @@
     <div class="bar-right">
       <span class="save-state" title={docStatus.saveStatus}
         >{#if fileWrite.name}<span class="file-chip" title={fileWrite.name}
-            ><span class="file-dot" class:dirty={fileDirty}></span
-            ><span class="file-chip-name">{fileWrite.name}</span></span
+            ><span class="file-dot" class:dirty={fileDirty}></span><span class="file-chip-name"
+              >{fileWrite.name}</span
+            ></span
           >{/if}{#if docStatus.saveStatus === 'Saving…'}<LoaderCircle
             size={13}
           />{:else if docStatus.saveStatus === 'Saved on this device'}<Check

@@ -157,9 +157,6 @@ button.brand:hover {
 button.brand:focus-visible {
   outline: 2px solid var(--accent);
 }
-.brand-caret {
-  color: var(--muted);
-}
 .bar-divider {
   height: 16px;
   width: 1px;
@@ -259,7 +256,9 @@ button.brand:focus-visible {
   background: #fff;
   border: 1px solid #d3d2cc;
   border-radius: 14px;
-  box-shadow: 0 24px 80px #00000024, 0 2px 8px #0000000b;
+  box-shadow:
+    0 24px 80px #00000024,
+    0 2px 8px #0000000b;
 }
 .open-board-title {
   margin: 0 0 8px;
@@ -356,8 +355,8 @@ main {
 }
 .edges > path {
   fill: none;
-  stroke: #aaa9a1;
-  stroke-width: 1.4;
+  stroke: black;
+  stroke-width: 2;
 }
 .edges > path.connection.selected {
   stroke: var(--accent);
@@ -815,12 +814,24 @@ blockquote {
 .group-resize-zone {
   pointer-events: auto;
 }
-.group-box.white { --group-color: #ffffff; }
-.group-box.yellow { --group-color: #fff2b8; }
-.group-box.blue { --group-color: #ddeaff; }
-.group-box.green { --group-color: #dff2d8; }
-.group-box.pink { --group-color: #f3dde7; }
-.group-box.purple { --group-color: #e9ddf5; }
+.group-box.white {
+  --group-color: #ffffff;
+}
+.group-box.yellow {
+  --group-color: #fff2b8;
+}
+.group-box.blue {
+  --group-color: #ddeaff;
+}
+.group-box.green {
+  --group-color: #dff2d8;
+}
+.group-box.pink {
+  --group-color: #f3dde7;
+}
+.group-box.purple {
+  --group-color: #e9ddf5;
+}
 .group-label {
   position: absolute;
   left: 8px;
@@ -1218,7 +1229,9 @@ input.floating-text-input.editing:focus {
   border: 1px solid #d3d2cc;
   border-radius: 16px;
   background: #fff;
-  box-shadow: 0 24px 80px #00000024, 0 2px 8px #0000000b;
+  box-shadow:
+    0 24px 80px #00000024,
+    0 2px 8px #0000000b;
 }
 .settings-sidebar {
   padding: 22px 12px;

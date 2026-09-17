@@ -4,7 +4,9 @@
   import StarterKit from '@tiptap/starter-kit';
   import Image from '@tiptap/extension-image';
   import { Markdown } from '@tiptap/markdown';
+  import 'katex/dist/katex.min.css';
   import { MarkdownEscape, MarkdownSyntax } from './lib/markdown-syntax';
+  import { MathSupport, refreshMathViews } from './lib/math';
 
   let {
     body,
@@ -49,6 +51,7 @@
 
   function applyExternal(markdown: string) {
     if (!editor) return;
+    console.log('[live] applyExternal', JSON.stringify(markdown));
     if (composing || editor.view.composing) {
       pendingExternal = markdown;
       return;
@@ -103,6 +106,7 @@
         }),
         MarkdownEscape,
         MarkdownSyntax,
+        MathSupport,
         Markdown.configure({ markedOptions: { gfm: true, breaks: false } }),
         EscapeToFinish,
       ],
@@ -160,7 +164,10 @@
 
   $effect(() => {
     const enabled = editing;
-    if (editor && editor.isEditable !== enabled) editor.setEditable(enabled);
+    if (editor && editor.isEditable !== enabled) {
+      editor.setEditable(enabled);
+      refreshMathViews();
+    }
   });
 
   $effect(() => {

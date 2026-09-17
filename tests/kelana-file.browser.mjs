@@ -111,7 +111,10 @@ const run = async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'kelana-export-'));
 
     await test('startup does not load the container worker or the wasm', async () => {
-      assert(wasmRequests.length === 0, `sqlite3 assets requested at startup: ${wasmRequests.join(', ')}`);
+      assert(
+        wasmRequests.length === 0,
+        `sqlite3 assets requested at startup: ${wasmRequests.join(', ')}`,
+      );
     });
 
     await test('importing a PDF and an image puts both on the board', async () => {
@@ -148,11 +151,13 @@ const run = async () => {
     let annotationQuote = '';
     await test('selecting text in the reader creates an annotation', async () => {
       // Park the image card away so it cannot cover the PDF card or its menu.
+      // Grab the card center: the top-left corner hosts the open-in-workbench
+      // button, and a corner grab would click chrome instead of dragging.
       const image = await page.$('.board-card[aria-label="dot.png"]');
       const ib = await image.boundingBox();
-      await page.mouse.move(ib.x + 40, ib.y + 10);
+      await page.mouse.move(ib.x + ib.width / 2, ib.y + ib.height / 2);
       await page.mouse.down();
-      await page.mouse.move(ib.x + 420, ib.y + 420, { steps: 8 });
+      await page.mouse.move(ib.x + ib.width / 2 + 420, ib.y + ib.height / 2 + 420, { steps: 8 });
       await page.mouse.up();
       await page.waitForTimeout(200);
       await page.click('.board-card[aria-label="sample.pdf"]', { button: 'right' });
@@ -172,7 +177,6 @@ const run = async () => {
       await page.waitForSelector('.passage', { timeout: 5000 });
       await page.keyboard.press('Escape');
     });
-
 
     await test('Save As… via the file menu exports a .kelana download', async () => {
       await page.click('button[aria-label="File menu"]');
@@ -232,8 +236,14 @@ const run = async () => {
         `annotation quote mismatch: ${JSON.stringify(annotation.anchor.quote)}`,
       );
       const pdfEntity = Object.values(doc.entities).find((e) => e.type === 'pdf');
-      assert(pdfEntity?.assetId === `asset:${pdfChecksum}`, 'pdf entity does not reference its asset by checksum id');
-      assert(meta.generator.startsWith('kelana 0.'), `generator missing app version: ${meta.generator}`);
+      assert(
+        pdfEntity?.assetId === `asset:${pdfChecksum}`,
+        'pdf entity does not reference its asset by checksum id',
+      );
+      assert(
+        meta.generator.startsWith('kelana 0.'),
+        `generator missing app version: ${meta.generator}`,
+      );
       const bytes = await readFile(join(tmp, 'save-as.kelana'));
       assert(bytes.length > 1000, 'export suspiciously small');
     });

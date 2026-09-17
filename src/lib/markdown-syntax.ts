@@ -138,9 +138,12 @@ export const MarkdownSyntax = Extension.create({
             character: string;
             marks: readonly ProseMirrorMark[];
           }> = [];
-          newState.doc.descendants((node, position) => {
+          newState.doc.descendants((node, position, parent) => {
             if (!node.isText || !node.text) return;
-            for (const match of node.text.matchAll(/\\([\\`*_[\]{}<>#+\-.!|()])/g)) {
+            // Raw LaTeX inside math nodes must survive verbatim — escapes
+            // are markdown syntax, not math syntax.
+            if (parent?.type.name.startsWith('math')) return;
+            for (const match of node.text.matchAll(/\\([\\`*_\[\]{}<>#+\-.!|()])/g)) {
               const offset = match.index ?? 0;
               replacements.push({
                 from: position + offset,
@@ -209,6 +212,7 @@ export const MarkdownSyntax = Extension.create({
             }
 
             if (!escapablePunctuation.test(text) || from < 1) return false;
+            if ($from.parent.type.name.startsWith('math')) return false;
             if (state.doc.textBetween(from - 1, from, undefined, '\ufffc') !== '\\') return false;
 
             view.dispatch(
