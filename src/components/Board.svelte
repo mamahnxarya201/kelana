@@ -88,6 +88,12 @@
   let edgesLayer: EdgesLayer;
   let marquee = $state<{ left: number; top: number; width: number; height: number } | null>(null);
   let tool = $state<'select' | 'hand' | 'connect'>('select');
+  let createMode = $state<'card' | 'text'>('card');
+  let isPanning = $state(false);
+  const isTempPan = $derived(viewport.space || isPanning);
+  const selectActive = $derived(tool === 'select' && !isTempPan);
+  const handActive = $derived(tool === 'hand' || isTempPan);
+  const connectActive = $derived(tool === 'connect' && !isTempPan);
   let connecting = $state<{ entityId: string; side: ConnectionSide } | null>(null);
   let snapTarget = $state<{ entityId: string; side: ConnectionSide } | null>(null);
   let cursorWorld = $state<Point>({ x: 0, y: 0 });
@@ -455,8 +461,16 @@
       tool = 'select';
       curveSettingsOpen = false;
     }
-    if (event.key.toLowerCase() === 'n') onaddcard();
-    if (event.key.toLowerCase() === 't') onaddfreetext();
+    if (event.key.toLowerCase() === 'n') {
+      if (!selectActive) return;
+      createMode = 'card';
+      onaddcard();
+    }
+    if (event.key.toLowerCase() === 't') {
+      if (!selectActive) return;
+      createMode = 'text';
+      onaddfreetext();
+    }
     if (event.key.toLowerCase() === 'v') selectTool('select');
     if (event.key.toLowerCase() === 'h') selectTool('hand');
     if (event.key.toLowerCase() === 'c') toggleConnectTool();
@@ -537,6 +551,7 @@
     event.preventDefault();
     const start = { x: event.clientX, y: event.clientY };
     const camera = { ...doc.camera };
+    isPanning = true;
     element.setPointerCapture(event.pointerId);
     const movement = (moveEvent: PointerEvent) => {
       doc.camera.x = camera.x + moveEvent.clientX - start.x;
@@ -546,6 +561,7 @@
       element.removeEventListener('pointermove', movement);
       element.removeEventListener('pointerup', finish);
       element.removeEventListener('pointercancel', finish);
+      isPanning = false;
       persist();
     };
     element.addEventListener('pointermove', movement);
@@ -627,7 +643,7 @@
 </script>
 
 <div
-  class:hand={tool === 'hand' || viewport.space}
+  class:hand={handActive}
   class:connecting={Boolean(connecting)}
   class="board"
   bind:this={element}
@@ -649,6 +665,7 @@
   ondragover={(event) => event.preventDefault()}
   {ondrop}
   ondblclick={(event) => {
+    if (!selectActive) return;
     if (
       !(event.target as HTMLElement).closest(
         '.board-card,.toolbar,.zoom-controls,.navigation-controls,.group-box',
@@ -656,7 +673,8 @@
     ) {
       event.preventDefault();
       event.stopPropagation();
-      onaddcard(point(event));
+      if (createMode === 'card') onaddcard(point(event));
+      else onaddfreetext(point(event));
     }
   }}
 >
@@ -837,7 +855,7 @@
     onpointerdown={(e) => e.stopPropagation()}
   >
     <button
-      class:active={tool === 'select'}
+      class:active={selectActive}
       class="icon-button"
       title="Select · V"
       aria-label="Select tool"
@@ -848,7 +866,7 @@
         snapTarget = null;
       }}><MousePointer2 size={19} /></button
     ><button
-      class:active={tool === 'hand'}
+      class:active={handActive}
       class="icon-button"
       title="Pan · H or hold Space"
       aria-label="Pan tool"
@@ -859,32 +877,48 @@
         snapTarget = null;
       }}><Hand size={19} /></button
     ><span class="tool-divider"></span><button
+      class:active={selectActive && createMode === 'card'}
       class="icon-button"
       title="New card · N"
       aria-label="New card"
-      onclick={() => onaddcard()}><Plus size={20} /></button
+      aria-pressed={selectActive && createMode === 'card'}
+      onclick={() => {
+        tool = 'select';
+        createMode = 'card';
+        curveSettingsOpen = false;
+        connecting = null;
+        snapTarget = null;
+      }}><Plus size={20} /></button
     ><button
+      class:active={selectActive && createMode === 'text'}
       class="icon-button"
       title="Free text · T"
       aria-label="Add free text"
-      onclick={() => onaddfreetext()}><Type size={19} /></button
-    ><button
-      class="icon-button"
-      title="Import PDF, image, or markdown"
-      aria-label="Import files"
-      onclick={onimport}><Upload size={19} /></button
-    ><button
-      class:active={tool === 'connect'}
+      aria-pressed={selectActive && createMode === 'text'}
+      onclick={() => {
+        tool = 'select';
+        createMode = 'text';
+        curveSettingsOpen = false;
+        connecting = null;
+        snapTarget = null;
+      }}><Type size={19} /></button
+    ><span class="tool-divider"></span><button
+      class:active={connectActive}
       class="icon-button"
       title="Connect items · C"
       aria-label="Connect items"
-      aria-pressed={tool === 'connect'}
+      aria-pressed={connectActive}
       onclick={() => {
         tool = tool === 'connect' ? 'select' : 'connect';
         curveSettingsOpen = tool === 'connect';
         connecting = null;
         snapTarget = null;
       }}><Link2 size={19} /></button
+    ><button
+      class="icon-button"
+      title="Import PDF, image, or markdown"
+      aria-label="Import files"
+      onclick={onimport}><Upload size={19} /></button
     ><span class="tool-divider"></span><button
       class="icon-button"
       title="Undo · Ctrl Z"
