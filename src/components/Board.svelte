@@ -96,6 +96,8 @@
   const connectActive = $derived(tool === 'connect' && !isTempPan);
   let connecting = $state<{ entityId: string; side: ConnectionSide } | null>(null);
   let snapTarget = $state<{ entityId: string; side: ConnectionSide } | null>(null);
+  let hoverConnectId = $state<string | null>(null);
+  let suppressPortsId = $state<string | null>(null);
   let cursorWorld = $state<Point>({ x: 0, y: 0 });
   let curveSettingsOpen = $state(false);
   let bezier = $state({ ...defaultBezierConfig });
@@ -331,6 +333,66 @@
     };
   }
 
+  // Hover/proximity reveal for connection ports. Visual only — snapping stays
+  // strict inside updateConnectionPreview (exact port or card under cursor).
+  function updateConnectHover(event: PointerEvent) {
+    if (tool !== 'connect') {
+      hoverConnectId = null;
+      return;
+    }
+    const landed = document.elementFromPoint(event.clientX, event.clientY) as Element | null;
+    const port = landed?.closest?.('.connection-port') as HTMLElement | null;
+    const card = landed?.closest?.('.board-card') as HTMLElement | null;
+    const directId = port?.dataset.entity ?? card?.dataset.entity ?? null;
+    if (directId) {
+      if (directId === suppressPortsId) {
+        hoverConnectId = null;
+        return;
+      }
+      suppressPortsId = null;
+      hoverConnectId = directId;
+      return;
+    }
+    // Proximity: cursor near (not necessarily over) a card reveals its ports.
+    const world = point(event);
+    const margin = 40 / doc.camera.zoom;
+    let best: string | null = null;
+    let bestDist = Infinity;
+    for (const placement of doc.placements) {
+      if (placement.entityId === suppressPortsId) continue;
+      const dx = Math.max(
+        placement.x - world.x,
+        0,
+        world.x - (placement.x + placement.width),
+      );
+      const dy = Math.max(
+        placement.y - world.y,
+        0,
+        world.y - (placement.y + placement.height),
+      );
+      const dist = Math.hypot(dx, dy);
+      if (dist <= margin && dist < bestDist) {
+        bestDist = dist;
+        best = placement.entityId;
+      }
+    }
+    if (best) {
+      hoverConnectId = best;
+    } else {
+      hoverConnectId = null;
+      suppressPortsId = null;
+    }
+  }
+
+  function isPortsVisible(entityId: string) {
+    if (tool !== 'connect' || suppressPortsId === entityId) return false;
+    return (
+      hoverConnectId === entityId ||
+      connecting?.entityId === entityId ||
+      snapTarget?.entityId === entityId
+    );
+  }
+
   function finishConnection(to: string, toSide: ConnectionSide) {
     if (!connecting || connecting.entityId === to) {
       connecting = null;
@@ -351,6 +413,10 @@
     }
     connecting = null;
     snapTarget = null;
+    // Auto-hide: keep the just-connected card's dots hidden until the
+    // pointer moves elsewhere, even though the cursor is still over it.
+    hoverConnectId = null;
+    suppressPortsId = to;
   }
 
   function connectionDrag(event: PointerEvent, placement: Placement, side: ConnectionSide) {
@@ -406,6 +472,8 @@
     tool = 'connect';
     curveSettingsOpen = true;
     snapTarget = null;
+    hoverConnectId = null;
+    suppressPortsId = null;
     connecting = { entityId: id, side };
     const placement = placementsByEntity.get(id);
     if (placement) cursorWorld = connectionPoint(placement, side);
@@ -435,6 +503,8 @@
     curveSettingsOpen = false;
     connecting = null;
     snapTarget = null;
+    hoverConnectId = null;
+    suppressPortsId = null;
   }
 
   function toggleConnectTool() {
@@ -442,6 +512,8 @@
     curveSettingsOpen = tool === 'connect';
     connecting = null;
     snapTarget = null;
+    hoverConnectId = null;
+    suppressPortsId = null;
   }
 
   function setNavigationMode(mode: 'mouse' | 'touchpad') {
@@ -458,6 +530,8 @@
       clearSelection();
       connecting = null;
       snapTarget = null;
+      hoverConnectId = null;
+      suppressPortsId = null;
       tool = 'select';
       curveSettingsOpen = false;
     }
@@ -583,6 +657,7 @@
       return;
     if (connecting) {
       connecting = null;
+      snapTarget = null;
       return;
     }
     if (viewport.space || tool === 'hand') {
@@ -660,7 +735,13 @@
     }
   }}
   onpointermove={(event) => {
-    if (connecting) updateConnectionPreview(event);
+    if (tool === 'connect') {
+      if (connecting) updateConnectionPreview(event);
+      updateConnectHover(event);
+    }
+  }}
+  onpointerleave={() => {
+    hoverConnectId = null;
   }}
   ondragover={(event) => event.preventDefault()}
   {ondrop}
@@ -767,6 +848,7 @@
           {tool}
           {connecting}
           {snapTarget}
+          portsVisible={isPortsVisible(entity.id)}
           {dragging}
           {onfocus}
           {onediting}
@@ -864,6 +946,8 @@
         curveSettingsOpen = false;
         connecting = null;
         snapTarget = null;
+        hoverConnectId = null;
+        suppressPortsId = null;
       }}><MousePointer2 size={19} /></button
     ><button
       class:active={handActive}
@@ -875,6 +959,8 @@
         curveSettingsOpen = false;
         connecting = null;
         snapTarget = null;
+        hoverConnectId = null;
+        suppressPortsId = null;
       }}><Hand size={19} /></button
     ><span class="tool-divider"></span><button
       class:active={selectActive && createMode === 'card'}
@@ -888,6 +974,8 @@
         curveSettingsOpen = false;
         connecting = null;
         snapTarget = null;
+        hoverConnectId = null;
+        suppressPortsId = null;
       }}><Plus size={20} /></button
     ><button
       class:active={selectActive && createMode === 'text'}
@@ -901,6 +989,8 @@
         curveSettingsOpen = false;
         connecting = null;
         snapTarget = null;
+        hoverConnectId = null;
+        suppressPortsId = null;
       }}><Type size={19} /></button
     ><span class="tool-divider"></span><button
       class:active={connectActive}
@@ -913,6 +1003,8 @@
         curveSettingsOpen = tool === 'connect';
         connecting = null;
         snapTarget = null;
+        hoverConnectId = null;
+        suppressPortsId = null;
       }}><Link2 size={19} /></button
     ><button
       class="icon-button"

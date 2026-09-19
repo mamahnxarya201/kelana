@@ -29,6 +29,7 @@
     tool,
     connecting,
     snapTarget,
+    portsVisible,
     dragging,
     onfocus,
     onediting,
@@ -58,6 +59,7 @@
     tool: 'select' | 'hand' | 'connect';
     connecting: Connection;
     snapTarget: Connection;
+    portsVisible: boolean;
     dragging: boolean;
     onfocus: (id: string) => void;
     onediting: (id: string) => void;
@@ -416,6 +418,7 @@
 {#if tool === 'connect'}{#each ['top', 'right', 'bottom', 'left'] as side}{@const portPoint =
       connectionPoint(placement, side as ConnectionSide)}<button
       class="connection-port"
+      class:visible={portsVisible}
       class:active={connecting?.entityId === entity.id && connecting.side === side}
       class:snap-target={snapTarget?.entityId === entity.id && snapTarget.side === side}
       data-entity={entity.id}

@@ -492,6 +492,18 @@
   background: transparent;
   cursor: crosshair;
   z-index: 10000;
+  /* Hidden until the pointer hovers (or nears) the card. Opacity keeps the
+     buttons hit-testable so exact-port snapping is unchanged. */
+  opacity: 0;
+  transition: opacity 120ms ease;
+  pointer-events: auto;
+}
+.connection-port.visible,
+.connection-port:hover,
+.connection-port:focus-visible,
+.connection-port.active,
+.connection-port.snap-target {
+  opacity: 1;
 }
 .connection-port::after {
   content: '';
@@ -515,9 +527,9 @@
   scale: 1.15;
 }
 .connection-port.snap-target::after {
-  background: #607ee8;
-  border-color: #607ee8;
-  box-shadow: 0 0 0 4px #607ee826;
+  background: #000;
+  border-color: #000;
+  box-shadow: 0 0 0 4px #00000026;
   scale: 1.2;
 }
 .connection-port:focus-visible {
