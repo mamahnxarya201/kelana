@@ -669,15 +669,19 @@
 
   function wheel(event: WheelEvent) {
     const card = (event.target as HTMLElement).closest<HTMLElement>('.board-card');
+    // The card itself never scrolls (its overflow is hidden); overflowing
+    // content lives in the inner .card-scroll host.
+    const scroller = card?.querySelector<HTMLElement>('.card-scroll');
     if (
       card?.dataset.entity &&
+      scroller &&
       selection.ids.includes(card.dataset.entity) &&
       !event.ctrlKey &&
       !event.metaKey
     ) {
       event.preventDefault();
-      card.scrollTop += event.deltaY;
-      card.scrollLeft += event.deltaX;
+      scroller.scrollTop += event.deltaY;
+      scroller.scrollLeft += event.deltaX;
       return;
     }
     event.preventDefault();
