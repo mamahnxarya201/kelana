@@ -18,7 +18,7 @@
   import EdgesLayer from './EdgesLayer.svelte';
   import { commit, doc, persist, redo, redoStack, undo, undoStack } from '../lib/doc.svelte';
   import { clearSelection, selectGroup, selection } from '../lib/selection.svelte';
-  import { centerPoint, fit, point, viewport, zoom } from '../lib/viewport.svelte';
+  import { centerPoint, fit, point, viewport, zoom, zoomFromWheel } from '../lib/viewport.svelte';
   import {
     connectionPoint,
     defaultBezierConfig,
@@ -110,8 +110,11 @@
   const placementsByEntity = $derived(
     new Map(doc.placements.map((placement) => [placement.entityId, placement])),
   );
+  // Indexed once per placement change, not once per camera change: zooming
+  // animates the camera every frame and must not rebuild the whole grid.
+  const grid = $derived(new SpatialGrid(doc.placements));
   const visible = $derived(
-    new SpatialGrid(doc.placements).query(
+    grid.query(
       (-doc.camera.x - 200) / doc.camera.zoom,
       (-doc.camera.y - 200) / doc.camera.zoom,
       (viewport.width + 400) / doc.camera.zoom,
@@ -685,21 +688,8 @@
       return;
     }
     event.preventDefault();
-    const rect = element.getBoundingClientRect();
     if ((doc.navigationMode ?? 'touchpad') === 'mouse' || event.ctrlKey || event.metaKey) {
-      const value = Math.max(
-        0.15,
-        Math.min(2.5, doc.camera.zoom * Math.exp(-event.deltaY * 0.002)),
-      );
-      const old = doc.camera.zoom;
-      const cx = event.clientX - rect.left;
-      const cy = event.clientY - rect.top;
-      doc.camera = {
-        x: cx - ((cx - doc.camera.x) * value) / old,
-        y: cy - ((cy - doc.camera.y) * value) / old,
-        zoom: value,
-      };
-      persist();
+      zoomFromWheel(event);
     } else {
       doc.camera.x -= event.deltaX;
       doc.camera.y -= event.deltaY;
