@@ -320,31 +320,28 @@
         />{:else if doc.camera.zoom < 0.35 && editingBoard !== entity.id}<strong
           >{entity.title}</strong
         >{:else if entity.type === 'pdf'}<div class="pdf-card-frame">
-          <div class="pdf-card-top">
-            <span class="pdf-card-title" title={entity.title}>{entity.title}</span>
-            <button
-              class="pdf-card-open"
-              title="Open in workbench"
-              aria-label={`Open ${entity.title} in workbench`}
-              onpointerdown={(event) => event.stopPropagation()}
-              onclick={(event) => {
-                event.stopPropagation();
-                onopen(entity.id);
-              }}
-              ><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"
-                ><rect
-                  x="2"
-                  y="3"
-                  width="12"
-                  height="10"
-                  rx="1"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.2"
-                /><path d="M9 3v10h4V3Z" fill="currentColor" /></svg
-              ></button
-            >
-          </div>
+          <button
+            class="pdf-float pdf-card-open"
+            title="Open in workbench"
+            aria-label={`Open ${entity.title} in workbench`}
+            onpointerdown={(event) => event.stopPropagation()}
+            onclick={(event) => {
+              event.stopPropagation();
+              onopen(entity.id);
+            }}
+            ><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"
+              ><rect
+                x="2"
+                y="3"
+                width="12"
+                height="10"
+                rx="1"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.2"
+              /><path d="M9 3v10h4V3Z" fill="currentColor" /></svg
+            ></button
+          >
           <PdfBoardContent {entity} width={placement.width} height={placement.height} />
         </div>{:else if entity.type === 'image'}<AssetImage
           id={entity.assetId!}
@@ -399,7 +396,7 @@
         >Connect from right…</ContextMenu.Item
       >{#if entity.type !== 'text'}<ContextMenu.Separator class="menu-separator" />
         <div class="color-row">
-          {#each ['white', 'yellow', 'blue', 'green', 'pink', 'purple'] as color}<button
+          {#each ['white', 'yellow', 'blue', 'green', 'pink', 'purple', 'orange'] as color}<button
               class={`swatch ${color}`}
               aria-label={`Set ${color} card color`}
               title={color}

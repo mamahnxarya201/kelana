@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import type { PDFDocumentProxy } from 'pdfjs-dist';
   import { ChevronLeft, ChevronRight } from 'lucide-svelte';
-  import { acquirePdf, releasePdf } from '../lib/pdf';
+  import { acquirePdf, releasePdf, PDF_CARD_INSET } from '../lib/pdf';
   import type { Entity } from '../lib/model';
   import PdfPage from '../PdfPage.svelte';
 
@@ -20,7 +20,7 @@
   // whose anchor points at this pdf. Annotating stays panel-only, so no
   // selection popup lives here.
   import { doc } from '../lib/doc.svelte';
-  import { selectOnly, selection } from '../lib/selection.svelte';
+  import { selection } from '../lib/selection.svelte';
   const annotations = $derived(
     Object.values(doc.entities).filter(
       (e): e is Entity => e.type === 'annotation' && e.anchor?.pdfId === entity.id,
@@ -32,12 +32,12 @@
   let page = $state(1);
   let pageRatio = $state(0); // page height / width of page 1
 
-  const contentWidth = $derived(Math.max(120, Math.floor(width)));
-  // Flip view shows one page at a time: never wider than the card, never
-  // taller than the area under the header bar.
+  const contentWidth = $derived(Math.max(120, Math.floor(width) - PDF_CARD_INSET));
+  // Flip view shows one page at a time: the page sits inside the card frame
+  // with a small breathing margin, and the floating controls overlay it.
   const fitWidth = $derived.by(() => {
     if (!pageRatio) return contentWidth;
-    const availableHeight = Math.max(80, height - 44);
+    const availableHeight = Math.max(80, height - PDF_CARD_INSET);
     return Math.max(120, Math.floor(Math.min(contentWidth, availableHeight / pageRatio)));
   });
 
@@ -76,12 +76,6 @@
   class="pdf-card-flip"
   role="document"
   aria-label={`PDF: ${entity.title}`}
-  onpointerdown={(event) => {
-    // Select without dragging: header remains the drag handle. Stop
-    // propagation so BoardCard drag / space-pan never starts from inside.
-    if (!selection.ids.includes(entity.id)) selectOnly(entity.id);
-    event.stopPropagation();
-  }}
   onwheel={(event) => {
     // Wheel flips pages only when the card is selected (no ctrl/meta — the
     // board zooms then); at the edges the board's no-op card scroll applies.
@@ -110,12 +104,11 @@
       onselect={() => {}}
     />
     {#if pdf.numPages > 1}
-      <div class="pdf-flip-bar" role="group" aria-label="PDF pages">
+      <div class="pdf-float pdf-flip-bar" role="group" aria-label="PDF pages">
         <button
           class="pdf-flip-button"
           aria-label="Previous page"
           disabled={page <= 1}
-          onpointerdown={(event) => event.stopPropagation()}
           onclick={() => flip(-1)}
         ><ChevronLeft size={15} /></button>
         <span class="pdf-flip-count">{page} / {pdf.numPages}</span>
@@ -123,7 +116,6 @@
           class="pdf-flip-button"
           aria-label="Next page"
           disabled={page >= pdf.numPages}
-          onpointerdown={(event) => event.stopPropagation()}
           onclick={() => flip(1)}
         ><ChevronRight size={15} /></button>
       </div>

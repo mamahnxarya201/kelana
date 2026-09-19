@@ -171,10 +171,13 @@ const run = async () => {
       await page.mouse.down();
       await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2, { steps: 6 });
       await page.mouse.up();
-      await page.waitForSelector('.selection-popover', { timeout: 5000 });
-      annotationQuote = (await page.$eval('.selection-popover p', (el) => el.textContent)).trim();
-      await page.click('.selection-popover button:has-text("Keep highlight")');
+      // Right-click the selection: highlighting is an explicit choice, so the
+      // palette appears only on the right-click, never on selection alone.
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
+      await page.waitForSelector('.highlight-palette', { timeout: 5000 });
+      await page.click('.highlight-palette button[aria-label="Highlight Yellow"]');
       await page.waitForSelector('.passage', { timeout: 5000 });
+      annotationQuote = (await page.$eval('.passage p', (el) => el.textContent)).trim();
       await page.keyboard.press('Escape');
     });
 

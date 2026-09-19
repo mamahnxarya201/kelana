@@ -32,8 +32,12 @@ export default defineConfig({
   optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
   // A tunnel or preview proxy reaches the dev server under its public hostname
   // (for example the Amp orb portal), which Vite's host check would reject.
+  // Inside an orb every portal gets its own generated hostname, and an orb
+  // service started ad hoc has no PUBLIC_URL, so orbs allow any host.
   server: process.env.PUBLIC_URL
     ? { allowedHosts: [new URL(process.env.PUBLIC_URL).hostname] }
-    : undefined,
+    : process.env.AMP_ORB
+      ? { allowedHosts: true }
+      : undefined,
   build: { target: 'es2022', rollupOptions: { output: { manualChunks: { pdf: ['pdfjs-dist'] } } } },
 });

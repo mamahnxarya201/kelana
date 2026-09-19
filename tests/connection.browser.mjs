@@ -142,12 +142,33 @@ const run = async () => {
 
       await page.setInputFiles('input[type="file"]', pdfPath);
       await page.waitForSelector('.board-card[data-entity^="pdf:"]', { timeout: 15000 });
+      // A fresh PDF card is the page: no mat, no frame, so the card keeps the
+      // page's aspect ratio exactly.
+      await page.waitForTimeout(800);
+      const pdfBox = await page.$eval('.board-card[data-entity^="pdf:"]', (el) => ({
+        width: el.offsetWidth,
+        height: el.offsetHeight,
+      }));
+      const pageRatio = 792 / 612; // the sample page's MediaBox
+      assert(
+        Math.abs(pdfBox.height / pdfBox.width - pageRatio) < 0.02,
+        `pdf card does not fit its page: ${JSON.stringify(pdfBox)}`,
+      );
+      const pdfFrame = await page.$eval('.board-card[data-entity^="pdf:"]', (el) => {
+        const cs = getComputedStyle(el);
+        return { border: cs.borderTopWidth, shadow: cs.boxShadow, mat: getComputedStyle(el.querySelector('.pdf-card-flip')).backgroundColor };
+      });
+      assert(
+        pdfFrame.border === '0px' && pdfFrame.shadow === 'none',
+        `pdf card must be borderless: ${JSON.stringify(pdfFrame)}`,
+      );
       await page.click('.board-card[data-entity^="pdf:"] button[title="Open in workbench"]');
       // Target the workbench reader's page: the board card also renders a
       // PdfPage now, but its selection handler is intentionally a no-op.
       await page.waitForSelector('.pdf-flow .textLayer span', { timeout: 20000 });
       // Synthesize a text selection over the reader's first text-layer span,
-      // then fire the pointerup that PdfPage listens on.
+      // then right-click it: highlighting is an explicit choice, so nothing
+      // happens on selection alone.
       await page.evaluate(() => {
         const span = document.querySelector('.pdf-flow .textLayer span');
         const range = document.createRange();
@@ -155,18 +176,38 @@ const run = async () => {
         const sel = window.getSelection();
         sel.removeAllRanges();
         sel.addRange(range);
+      });
+      await page.waitForTimeout(200);
+      assert(
+        !(await page.$('.highlight-palette')),
+        'selection alone must not open the highlight palette',
+      );
+      await page.evaluate(() => {
         document
           .querySelector('.pdf-flow .pdf-page')
-          .dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+          .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 400, clientY: 300 }));
       });
-      await page.waitForSelector('.selection-popover', { timeout: 5000 });
-      await page.click('.selection-popover button:has-text("Keep highlight")');
+      await page.waitForSelector('.highlight-palette', { timeout: 5000 });
+      await page.click('.highlight-palette button[aria-label="Highlight Green"]');
       await page.waitForTimeout(300);
-      await page.click('.selection-popover button:has-text("Place on board")');
+      const tinted = await page.$eval(
+        '.pdf-flow .highlights span',
+        (el) => getComputedStyle(el).backgroundColor,
+      );
+      assert(tinted === 'rgba(122, 217, 124, 0.5)', `unexpected highlight tint: ${tinted}`);
+      await page.click('.annotation-tray .passage button:has-text("Place on board")');
       await page.waitForTimeout(500);
 
       const annotationCard = await count(page, '.board-card[data-entity^="annotation:"]');
       assert(annotationCard === 1, `expected 1 annotation card on the board, got ${annotationCard}`);
+      const cardColor = await page.$eval(
+        '.board-card[data-entity^="annotation:"]',
+        (el) => getComputedStyle(el).backgroundColor,
+      );
+      assert(
+        cardColor === 'rgb(255, 255, 255)',
+        `annotation card must stay white regardless of the highlight color, got ${cardColor}`,
+      );
       const edgesAfter = await count(page, 'svg.edges path.connection');
       assert(
         edgesAfter === edgesBefore,

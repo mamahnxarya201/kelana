@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { TextLayer, type PDFDocumentProxy } from 'pdfjs-dist';
   import type { Anchor, Entity } from './lib/model';
+  import { highlightTint } from './lib/highlight';
+  import { beginEntityDrag, endEntityDrag } from './lib/drag.svelte';
   let {
     pdf,
     number,
@@ -10,6 +12,7 @@
     pdfId,
     annotations,
     onselect,
+    dragHighlights = false,
   }: {
     pdf: PDFDocumentProxy;
     number: number;
@@ -17,7 +20,10 @@
     visualWidth?: number;
     pdfId: string;
     annotations: Entity[];
-    onselect: (anchor: Anchor) => void;
+    /** Right-click on a live selection: the reader offers highlight colors. */
+    onselect: (anchor: Anchor, event: MouseEvent) => void;
+    /** Panel only: a highlight itself is the drag source for the board. */
+    dragHighlights?: boolean;
   } = $props();
   let host: HTMLDivElement;
   let canvas: HTMLCanvasElement;
@@ -84,19 +90,19 @@
       }
     };
   });
-  function select() {
+  function anchorFromSelection(): Anchor | null {
     const selection = window.getSelection();
-    if (!selection?.rangeCount || selection.isCollapsed) return;
+    if (!selection?.rangeCount || selection.isCollapsed) return null;
     const range = selection.getRangeAt(0);
-    if (!text.contains(range.startContainer) || !text.contains(range.endContainer)) return;
+    if (!text.contains(range.startContainer) || !text.contains(range.endContainer)) return null;
     const quote = selection.toString().trim();
-    if (!quote) return;
+    if (!quote) return null;
     const box = host.getBoundingClientRect();
     const before = range.cloneRange();
     before.selectNodeContents(text);
     before.setEnd(range.startContainer, range.startOffset);
     const start = before.toString().length;
-    onselect({
+    return {
       pdfId,
       page: number,
       quote,
@@ -111,7 +117,16 @@
           width: r.width / box.width,
           height: r.height / box.height,
         })),
-    });
+    };
+  }
+  // Selection never opens anything by itself; the reader only reacts to an
+  // explicit right-click, and only while a passage is selected.
+  function contextmenu(event: MouseEvent) {
+    const anchor = anchorFromSelection();
+    if (!anchor) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onselect(anchor, event);
   }
 </script>
 
@@ -122,8 +137,7 @@
   style:width={`${visualWidth}px`}
   style:height={`${visualWidth * ratio}px`}
   data-page={number}
-  onpointerup={select}
-  onkeyup={select}
+  oncontextmenu={contextmenu}
   role="document"
   aria-label={`Page ${number}`}
 >
@@ -135,12 +149,26 @@
   >
     <canvas bind:this={canvas}></canvas>
     <div class="textLayer" bind:this={text}></div>
+    <!-- Decorative layer: the page text lives in the text layer above, and the
+         passages are listed accessibly in the reader's tray. -->
     <div class="highlights">
       {#each annotations.filter((a) => a.anchor?.page === number) as a}{#each a.anchor?.rects ?? [] as r}<span
+            class={a.color}
             style:left={`${r.x * 100}%`}
             style:top={`${r.y * 100}%`}
             style:width={`${r.width * 100}%`}
             style:height={`${r.height * 100}%`}
+            style:background={highlightTint(a.anchor?.highlight ?? a.color)}
+            aria-hidden="true"
+            draggable={dragHighlights}
+            title={dragHighlights ? 'Drag this highlight onto the board' : undefined}
+            ondragstart={(event) => {
+              if (!dragHighlights) return;
+              beginEntityDrag(a.id);
+              event.dataTransfer!.setData('application/kelana-entity', a.id);
+              event.dataTransfer!.effectAllowed = 'copy';
+            }}
+            ondragend={dragHighlights ? endEntityDrag : undefined}
           ></span>{/each}{/each}
     </div>
     {#if error}<p class="error">{error}</p>{/if}

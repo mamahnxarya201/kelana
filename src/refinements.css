@@ -126,14 +126,15 @@
   position: sticky;
   top: 0;
   z-index: 5;
-  background: transparent;
+  /* Opaque so PDF pages and long notes never show through while scrolling. */
+  background: #fff;
   min-height: 44px;
   padding: 6px 10px 6px 9px;
   gap: 5px;
   transition: background 150ms ease;
 }
 .item-header:hover {
-  background: rgba(255, 255, 255, 0.92);
+  background: #faf9f6;
 }
 .item-title {
   font-size: 14px;
@@ -165,8 +166,31 @@
 .item-actions .icon-button:hover {
   color: #333;
 }
-.item-actions select {
-  max-width: 76px;
+/* PDF zoom: app-styled menu trigger instead of the platform select. */
+.zoom-button {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 6px;
+  color: #79776e;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
+}
+.zoom-button:hover {
+  color: #333;
+  background: #00000008;
+}
+.zoom-menu {
+  min-width: 158px;
+}
+.zoom-menu .file-menu-item[data-highlighted] {
+  background: #f0efec;
 }
 .fold-button {
   width: 24px;
@@ -717,43 +741,55 @@
 .pdf-flow + .annotation-tray {
   background: #fff;
 }
-.selection-popover {
+/* Right-click on a PDF selection opens a small color palette: highlighting is
+   an explicit choice, never a side effect of selecting text. */
+.highlight-palette {
   position: fixed;
   z-index: 120;
-  max-width: 310px;
-  width: calc(100vw - 24px);
-  background: #fff;
-  border: 1px solid #dedbd1;
-  border-radius: 7px;
-  box-shadow: 0 6px 25px #0002;
-  padding: 12px;
-  font-size: 13px;
-}
-.selection-popover p {
-  margin: 0 0 10px;
-  line-height: 1.5;
-  max-height: 58px;
-  overflow: hidden;
-}
-.selection-popover p[draggable='true'] {
-  cursor: grab;
-  background: #fff5ca;
-}
-.selection-popover > div {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 10px;
+  border: 1px solid #dedbd1;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 24px #1414141f;
+  animation: palette-in 120ms ease-out;
 }
-.selection-popover button {
+.highlight-palette .eyebrow {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 5px;
-  border-radius: 4px;
 }
-.selection-popover .muted {
-  font-size: 11px;
+.palette-row {
+  display: flex;
+  gap: 6px;
+}
+.palette-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #00000014;
+  border-radius: 50%;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+.palette-swatch:hover {
+  transform: scale(1.12);
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 0 3px #b9b6ac;
+}
+@keyframes palette-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 .annotation-tray {
   padding: 20px 24px;

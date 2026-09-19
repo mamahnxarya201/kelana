@@ -3,7 +3,7 @@
   import { crossfade, slide } from 'svelte/transition';
   import { flip } from 'svelte/animate';
   import { cubicOut } from 'svelte/easing';
-  import { ContextMenu } from 'bits-ui';
+  import { ContextMenu, DropdownMenu } from 'bits-ui';
   import {
     FileText,
     Image,
@@ -11,10 +11,13 @@
     PanelRightOpen,
     PanelLeftOpen,
     ChevronRight,
+    ChevronDown,
+    Check,
     X,
     ArrowUpRight,
   } from 'lucide-svelte';
   import type { Doc, Entity, Pane, Anchor } from './lib/model';
+  import type { HighlightColor } from './lib/highlight';
   import Editor from './Editor.svelte';
   import PdfReader from './PdfReader.svelte';
   import AssetImage from './AssetImage.svelte';
@@ -47,7 +50,7 @@
     onedit: (id: string, body: string) => void;
     oncommit: (id: string, before: string) => void;
     onsource: (e: Entity) => void;
-    onannotate: (anchor: Anchor) => string;
+    onannotate: (anchor: Anchor, color: HighlightColor) => string;
     onplace: (id: string) => void;
     onresize: (e: PointerEvent) => void;
     onwidth: (width: number) => void;
@@ -58,6 +61,16 @@
   const two = $derived(doc.panes.some((p) => p.column === 'secondary'));
   const columns = $derived(two ? (['primary', 'secondary'] as const) : (['primary'] as const));
   const annotations = $derived(Object.values(doc.entities).filter((e) => e.type === 'annotation'));
+  // PDF zoom lives in an app-styled menu: the native select's platform dropdown
+  // reads as a different application.
+  const zoomOptions = [
+    { value: 0.75, label: '75%' },
+    { value: 1, label: 'Fit width' },
+    { value: 1.25, label: '125%' },
+    { value: 1.5, label: '150%' },
+  ];
+  const zoomLabel = (zoom: number) =>
+    zoomOptions.find((option) => option.value === zoom)?.label ?? `${Math.round(zoom * 100)}%`;
   let container: HTMLDivElement;
   let reduced = $state(false);
   onMount(() => {
@@ -206,14 +219,28 @@
                     >{/if}<span title={e.title}>{e.title}</span></span
                 >
                 <div class="item-actions">
-                  {#if e.type === 'pdf'}<select
-                      aria-label="PDF zoom"
-                      value={pane.zoom}
-                      onchange={(event) =>
-                        onview(e.id, { zoom: Number(event.currentTarget.value) })}
-                      ><option value="0.75">75%</option><option value="1">Fit width</option><option
-                        value="1.25">125%</option
-                      ><option value="1.5">150%</option></select
+                  {#if e.type === 'pdf'}<DropdownMenu.Root
+                      ><DropdownMenu.Trigger
+                        class="zoom-button"
+                        title="PDF zoom"
+                        aria-label={`PDF zoom: ${zoomLabel(pane.zoom)}`}
+                        ><span>{zoomLabel(pane.zoom)}</span><ChevronDown
+                          size={13}
+                        /></DropdownMenu.Trigger
+                      ><DropdownMenu.Portal
+                        ><DropdownMenu.Content
+                          class="file-menu zoom-menu"
+                          sideOffset={6}
+                          align="end"
+                          >{#each zoomOptions as option}<DropdownMenu.Item
+                              class="file-menu-item"
+                              onSelect={() => onview(e.id, { zoom: option.value })}
+                              ><span>{option.label}</span>{#if pane.zoom === option.value}<Check
+                                  size={13}
+                                />{/if}</DropdownMenu.Item
+                            >{/each}</DropdownMenu.Content
+                        ></DropdownMenu.Portal
+                      ></DropdownMenu.Root
                     >{/if}
                   <button
                     class="icon-button"

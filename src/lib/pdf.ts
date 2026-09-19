@@ -30,3 +30,27 @@ export function releasePdf(id: string) {
     item.promise.then((pdf) => pdf.destroy()).catch(() => {});
   }
 }
+/**
+ * Board pdf cards show the page itself: no mat, no frame. A card sized to
+ * `pdfCardSize` is exactly the page's shape, so an imported PDF reads as one
+ * sheet of paper on the canvas.
+ */
+export const PDF_CARD_INSET = 0;
+/** Default page width for a freshly imported card, before the height cap. */
+const PDF_CARD_PAGE_WIDTH = 340;
+/** Keeps very tall pages (long folios, scans) from towering over the board. */
+const PDF_CARD_MAX_HEIGHT = 720;
+/**
+ * Card size that fits a page of the given aspect ratio (height / width): the
+ * page keeps its own proportions and fills the card exactly.
+ */
+export function pdfCardSize(ratio: number) {
+  const pageWidth = Math.min(
+    PDF_CARD_PAGE_WIDTH,
+    (PDF_CARD_MAX_HEIGHT - PDF_CARD_INSET) / Math.max(ratio, 0.01),
+  );
+  return {
+    width: Math.round(pageWidth) + PDF_CARD_INSET,
+    height: Math.round(pageWidth * ratio) + PDF_CARD_INSET,
+  };
+}

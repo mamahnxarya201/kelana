@@ -1,0 +1,12 @@
+# Long-running development services for Kelana. Amp supplies $PORT and
+# $PUBLIC_URL; the portal link is written to .amp/portals/.
+services:
+  web:
+    command: npm run dev -- --host 0.0.0.0 --port "$PORT"
+    health: /
+    portal:
+      title: Kelana
+      description: >-
+        Drop a PDF on the board, open it in the workbench, then select a passage
+        and right-click it to pick a highlight color. Drag the highlighted text
+        (or a list entry) onto the board to place the annotation card.

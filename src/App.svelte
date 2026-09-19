@@ -52,7 +52,8 @@
   } from './lib/search.svelte';
   import { fitFreeTextSize } from './lib/free-text';
   import { fontFamily, fontOptions } from './lib/fonts';
-  import { acquirePdf, releasePdf } from './lib/pdf';
+  import { acquirePdf, releasePdf, pdfCardSize } from './lib/pdf';
+  import { DEFAULT_HIGHLIGHT } from './lib/highlight';
   import Board from './components/Board.svelte';
   import OpenBoardDialog from './components/OpenBoardDialog.svelte';
   import Workbench from './Workbench.svelte';
@@ -307,10 +308,9 @@
           { collection: 'placements', id: placement.id, before: undefined, after: placement },
         ]);
         if (isPdf && asset) {
-          // Size the card from the first page only; afterwards the user can
-          // resize freely like a markdown card.
+          // Size the card from the first page so the page fits it exactly;
+          // afterwards the user can resize freely like a markdown card.
           const placementId = placement.id;
-          const before = $state.snapshot(placement);
           acquirePdf(asset.id)
             .then(async (pdf) => {
               try {
@@ -320,8 +320,7 @@
                 const target = doc.placements.find((p) => p.id === placementId);
                 if (!target) return;
                 const prev = $state.snapshot(target);
-                const width = 340;
-                const height = Math.round(Math.min(640, Math.max(280, 36 + width * ratio)));
+                const { width, height } = pdfCardSize(ratio);
                 if (prev.width === width && prev.height === height) return;
                 commit([
                   {
@@ -331,7 +330,6 @@
                     after: { ...prev, width, height },
                   },
                 ]);
-                void before;
               } finally {
                 releasePdf(asset.id);
               }
@@ -574,15 +572,17 @@
         },
       ]);
   }
-  function annotate(anchor: Anchor) {
+  function annotate(anchor: Anchor, color: string = DEFAULT_HIGHLIGHT) {
     const id = uid('annotation');
     const e: Entity = {
       id,
       type: 'annotation',
       title: anchor.quote.slice(0, 70),
       body: '',
+      // The card is a plain note; the passage keeps the color the reader chose,
+      // so re-coloring the card never repaints the highlight.
       color: 'white',
-      anchor: $state.snapshot(anchor),
+      anchor: { ...$state.snapshot(anchor), highlight: color },
     };
     commit([{ collection: 'entities', id, before: undefined, after: e }]);
     return id;
@@ -749,6 +749,7 @@
     if (e.code === 'Space') viewport.space = false;
   }}
   onblur={() => (viewport.space = false)}
+  oncontextmenu={(e) => e.preventDefault()}
   onpaste={(e) => {
     if (
       !(e.target as HTMLElement).closest('input,textarea,[contenteditable="true"]') &&

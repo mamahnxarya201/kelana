@@ -72,10 +72,24 @@ button:disabled {
   opacity: 0.3;
   cursor: default;
 }
-button:focus-visible,
-[tabindex]:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
+/* Chromium paints a hard focus rectangle around tabindex triggers and controls
+   after menu or keyboard interaction. The app communicates focus with its own
+   hover, active, and selected states instead. */
+:focus,
+:focus-visible {
+  outline: none;
+}
+/* Pointer-drag selection is a document behavior, not a UI behavior: only text
+   surfaces opt back in. */
+body {
+  user-select: none;
+}
+input,
+textarea,
+select,
+[contenteditable='true'],
+.textLayer {
+  user-select: text;
 }
 button,
 select {
@@ -450,6 +464,9 @@ main {
 .purple {
   background: #e9ddf5;
 }
+.orange {
+  background: #ffe6c4;
+}
 .markdown {
   font-size: 16px;
   line-height: 1.6;
@@ -562,73 +579,37 @@ blockquote {
   height: 100%;
   gap: 15px;
 }
-/* Board pdf card: scoped variant, markdown/text rules untouched. */
+/* Board pdf card: the card is the page. No border, no mat, no shadow — the
+   canvas contrast does the separating, and the floating controls overlay it. */
 .board-card.pdf-card {
   display: block;
   padding: 0;
   border: 0;
   background: #fff;
-  box-shadow: 0 2px 8px #14141414;
+  box-shadow: none;
 }
 .board-card.pdf-card:hover {
   border: 0;
 }
+/* A borderless card still needs lift feedback while it is being moved. */
+.board-card.pdf-card.dragging {
+  box-shadow: 0 8px 20px #14141416;
+}
 .pdf-card-frame {
-  display: grid;
-  grid-template-rows: 44px minmax(0, 1fr);
+  position: relative;
   min-height: 0;
   height: 100%;
-}
-.pdf-card-top {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 0 10px 0 16px;
-  background: #fffffff2;
-  border-bottom: 1px solid #eceae3;
-  cursor: grab;
-  user-select: none;
-}
-.pdf-card-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  font-weight: 600;
-  color: #55534b;
-}
-.pdf-card-open {
-  flex: none;
-  opacity: 0;
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  border: 1px solid #d5d4cd;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 2px 6px #0000000a;
-  transition: opacity 0.12s;
-  cursor: pointer;
-}
-.board-card.pdf-card:hover .pdf-card-open,
-.board-card.pdf-card:focus-within .pdf-card-open,
-.board-card.pdf-card.selected .pdf-card-open {
-  opacity: 1;
 }
 .pdf-card-flip {
   position: relative;
   min-height: 0;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #e8e7e2;
+  background: #fff;
   overflow: hidden;
-  user-select: text;
-  cursor: text;
+  cursor: default;
 }
 .pdf-card-flip .pdf-page {
   margin: 0;
@@ -636,54 +617,75 @@ blockquote {
   border-radius: 0;
   flex: none;
 }
-.pdf-flip-bar {
+/* The card is a page preview: annotating happens in the panel, so its text
+   never starts a native selection that would fight card dragging. */
+.board-card.pdf-card .textLayer {
+  pointer-events: none;
+  user-select: none;
+}
+.pdf-float {
   position: absolute;
-  bottom: 12px;
-  left: 50%;
-  transform: translateX(-50%);
+  z-index: 4;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 10px;
-  background: #fffffff5;
-  border: 1px solid #deddd5;
-  border-radius: 999px;
-  box-shadow: 0 4px 14px #00000022;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 2px 10px #14141416;
   opacity: 0;
-  transition: opacity 0.12s;
   pointer-events: none;
+  transition: opacity 0.14s ease;
 }
-.pdf-card-flip:hover .pdf-flip-bar,
-.pdf-card-flip:focus-within .pdf-flip-bar,
-.board-card.pdf-card.selected .pdf-flip-bar {
+.board-card.pdf-card:hover .pdf-float,
+.board-card.pdf-card:focus-within .pdf-float,
+.board-card.pdf-card.selected .pdf-float {
   opacity: 1;
   pointer-events: auto;
 }
-.pdf-flip-count {
-  font-size: 12px;
-  font-weight: 600;
+.pdf-flip-bar {
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+}
+.pdf-card-open {
+  top: 10px;
+  right: 10px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  justify-content: center;
   color: #55534b;
-  min-width: 48px;
-  text-align: center;
-  font-family: var(--font-ui);
+}
+.pdf-card-open:hover {
+  background: rgba(36, 36, 34, 0.07);
+  color: #242422;
 }
 .pdf-flip-button {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   display: grid;
   place-items: center;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
+  border-radius: 5px;
   color: #55534b;
   cursor: pointer;
 }
 .pdf-flip-button:hover:not(:disabled) {
-  background: rgba(36, 36, 34, 0.08);
+  background: rgba(36, 36, 34, 0.07);
 }
 .pdf-flip-button:disabled {
-  opacity: 0.35;
+  opacity: 0.3;
   cursor: default;
+}
+.pdf-flip-count {
+  min-width: 54px;
+  padding: 0 2px;
+  text-align: center;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: #77766f;
 }
 .pdf-card-error {
   font-size: 13px;
@@ -718,11 +720,13 @@ blockquote {
   padding: 0;
   overflow-wrap: anywhere;
 }
+/* The passage source is part of the card, not a hover reveal. */
 .annotation-card .source-link {
-  display: none;
+  margin-bottom: 10px;
+  color: #7a7160;
 }
-.annotation-card:hover .source-link {
-  display: flex;
+.annotation-card .source-link:hover {
+  color: #4b453a;
 }
 .toolbar {
   position: absolute;
@@ -796,6 +800,46 @@ blockquote {
   background: #7189df18;
   border-radius: 3px;
 }
+/* Ghost of the card a dragged passage becomes, drawn where it will land. */
+.drop-preview {
+  position: absolute;
+  z-index: 30;
+  width: 290px;
+  padding: 16px 18px;
+  border: 1px solid #deddd5;
+  border-left: 3px solid var(--drop-tint, #d6c071);
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 18px 40px #14141426;
+  pointer-events: none;
+  opacity: 0.96;
+  animation: drop-preview-in 120ms ease-out;
+}
+.drop-preview-source {
+  display: block;
+  margin-bottom: 9px;
+  color: #7a7160;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.drop-preview blockquote {
+  margin: 0;
+  padding-left: 0;
+  border-left: 0;
+  font-size: 15px;
+  max-height: 106px;
+  overflow: hidden;
+}
+@keyframes drop-preview-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 0.96;
+    transform: none;
+  }
+}
 .group-box {
   position: absolute;
   top: 0;
@@ -831,6 +875,9 @@ blockquote {
 }
 .group-box.purple {
   --group-color: #e9ddf5;
+}
+.group-box.orange {
+  --group-color: #ffe6c4;
 }
 .group-label {
   position: absolute;
@@ -1010,13 +1057,6 @@ input.floating-text-input.editing:focus {
   height: 30px;
   color: #7e7c73;
 }
-.item-actions select {
-  font-size: 12px;
-  background: transparent;
-  border: 0;
-  max-width: 76px;
-  color: #79776e;
-}
 .text-icon {
   font-size: 16px;
   font-weight: 500;
@@ -1090,8 +1130,22 @@ input.floating-text-input.editing:focus {
 }
 .highlights span {
   position: absolute;
-  background: #ffdf4560;
+  /* Fallback tint; each passage supplies its own from the highlight palette. */
+  background: #ffd83d80;
+  border-radius: 2px;
   mix-blend-mode: multiply;
+}
+/* In the reader a highlight is the drag handle for its passage: grab it and
+   drop it on the board to make the annotation card. */
+.highlights span[draggable='true'] {
+  pointer-events: auto;
+  cursor: grab;
+}
+.highlights span[draggable='true']:hover {
+  outline: 1px solid #0000002e;
+}
+.highlights span[draggable='true']:active {
+  cursor: grabbing;
 }
 .page-number {
   font-size: 12px;
@@ -1140,6 +1194,14 @@ input.floating-text-input.editing:focus {
   margin: 0 0 8px;
   font-size: 14px;
   line-height: 1.5;
+}
+.passage-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 7px;
+  border-radius: 50%;
+  vertical-align: middle;
 }
 .passage button {
   font-size: 12px;

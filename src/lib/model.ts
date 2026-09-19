@@ -7,6 +7,12 @@ export type Anchor = {
   end: number;
   rects: { x: number; y: number; width: number; height: number }[];
   createdAt: number;
+  /**
+   * Highlight color id for this passage. The annotation card keeps its own
+   * color, so the passage and the card can be colored independently; boards
+   * saved before this field existed fall back to the card's color.
+   */
+  highlight?: string;
 };
 export type Entity = {
   id: string;

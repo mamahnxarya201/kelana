@@ -17,6 +17,8 @@
   import BoardCard from './BoardCard.svelte';
   import EdgesLayer from './EdgesLayer.svelte';
   import { commit, doc, persist, redo, redoStack, undo, undoStack } from '../lib/doc.svelte';
+  import { endEntityDrag, entityDrag, moveEntityDrag } from '../lib/drag.svelte';
+  import { highlightSwatch } from '../lib/highlight';
   import { clearSelection, selectGroup, selection } from '../lib/selection.svelte';
   import { centerPoint, fit, point, viewport, zoom, zoomFromWheel } from '../lib/viewport.svelte';
   import {
@@ -105,7 +107,7 @@
   let resizing = $state(false);
   let groupEditing = $state('');
   let groupEditBefore = '';
-  const colors = ['white', 'yellow', 'blue', 'green', 'pink', 'purple'];
+  const colors = ['white', 'yellow', 'blue', 'green', 'pink', 'purple', 'orange'];
   const navigationMode = $derived(doc.navigationMode ?? 'touchpad');
   const placementsByEntity = $derived(
     new Map(doc.placements.map((placement) => [placement.entityId, placement])),
@@ -737,8 +739,22 @@
   onpointerleave={() => {
     hoverConnectId = null;
   }}
-  ondragover={(event) => event.preventDefault()}
-  {ondrop}
+  ondragover={(event) => {
+    event.preventDefault();
+    if (!entityDrag.active) return;
+    // The preview is board-local so it lines up with where the card lands.
+    const rect = element.getBoundingClientRect();
+    moveEntityDrag(event.clientX - rect.left, event.clientY - rect.top, true);
+  }}
+  ondragleave={(event) => {
+    const to = event.relatedTarget as Node | null;
+    if (to && element.contains(to)) return;
+    moveEntityDrag(0, 0, false);
+  }}
+  ondrop={(event) => {
+    ondrop(event);
+    endEntityDrag();
+  }}
   ondblclick={(event) => {
     if (!selectActive) return;
     if (
@@ -870,6 +886,21 @@
         />{/if}
     {/each}
   </div>
+  {#if entityDrag.active && entityDrag.over}{@const preview = doc.entities[entityDrag.entityId]}
+    {#if preview}<div
+        class="drop-preview"
+        style:left={`${entityDrag.x}px`}
+        style:top={`${entityDrag.y}px`}
+        style:--drop-tint={highlightSwatch(preview.anchor?.highlight ?? preview.color)}
+        aria-hidden="true"
+      >
+        {#if preview.anchor}<span class="drop-preview-source"
+            >p. {preview.anchor.page} · {doc.entities[preview.anchor.pdfId]?.title ??
+              'Source unavailable'}</span
+          ><blockquote>{preview.anchor.quote}</blockquote>
+        {:else}<strong>{preview.title}</strong>{/if}
+      </div>{/if}
+  {/if}
   {#if marquee}<div
       class="selection-marquee"
       style={`left:${marquee.left}px;top:${marquee.top}px;width:${marquee.width}px;height:${marquee.height}px`}
