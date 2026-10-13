@@ -44,6 +44,10 @@ export type Pane = {
   readPage?: number;
   readOffset?: number;
   folded?: boolean;
+  /** PDF view: the whole document in the reading flow, or one page per view. */
+  mode?: 'all' | 'page';
+  /** PDF pan in screen px away from the fitted page (zoom's companion). */
+  pan?: Point;
 };
 export type ConnectionSide = 'top' | 'right' | 'bottom' | 'left';
 export type FontId = 'inter' | 'source-sans' | 'source-serif' | 'lora' | 'stix-two' | 'libertinus';

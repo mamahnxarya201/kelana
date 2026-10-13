@@ -55,18 +55,25 @@
       ratio = base.height / base.width;
       const viewport = page.getViewport({ scale: w / base.width });
       const dpr = Math.min(devicePixelRatio || 1, 2);
-      canvas.width = Math.round(viewport.width * dpr);
-      canvas.height = Math.round(viewport.height * dpr);
-      canvas.style.width = `${viewport.width}px`;
-      canvas.style.height = `${viewport.height}px`;
+      // Render off-screen, then blit: the page keeps showing its previous raster
+      // (scaled by the reader) until the sharper one is ready, so a zoom redraw
+      // never blanks the page mid-read.
+      const buffer = document.createElement('canvas');
+      buffer.width = Math.round(viewport.width * dpr);
+      buffer.height = Math.round(viewport.height * dpr);
       task = page.render({
-        canvas,
-        canvasContext: canvas.getContext('2d')!,
+        canvas: buffer,
+        canvasContext: buffer.getContext('2d')!,
         viewport,
         transform: dpr === 1 ? undefined : [dpr, 0, 0, dpr, 0, 0],
       });
       await task.promise;
       if (cancelled) return;
+      canvas.width = buffer.width;
+      canvas.height = buffer.height;
+      canvas.style.width = `${viewport.width}px`;
+      canvas.style.height = `${viewport.height}px`;
+      canvas.getContext('2d')!.drawImage(buffer, 0, 0);
       text.replaceChildren();
       text.style.setProperty('--scale-factor', String(viewport.scale));
       text.style.setProperty('--total-scale-factor', String(viewport.scale));
@@ -84,7 +91,9 @@
       task?.cancel();
       layer?.cancel();
       text?.replaceChildren();
-      if (canvas) {
+      // Only a page that scrolled out of view releases its raster; a re-render
+      // keeps the old one until the new render blits over it.
+      if (!visible && canvas) {
         canvas.width = 0;
         canvas.height = 0;
       }

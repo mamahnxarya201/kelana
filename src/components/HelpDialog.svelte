@@ -12,6 +12,7 @@ const shortcuts: [string, string][] = [
   ['Space + drag', 'Pan the board'],
   ['Mouse mode', 'Middle-drag to pan · wheel to zoom'],
   ['Touchpad mode', 'Two-finger pan · pinch to zoom'],
+  ['PDF reader', 'Pinch or wheel to zoom · middle-drag or Space + drag to pan'],
   ['Drag empty space', 'Select multiple cards'],
   ['Right-click selection', 'Create a group'],
   ['Delete on a group', 'Remove group, keep its cards'],

@@ -61,16 +61,20 @@
   const two = $derived(doc.panes.some((p) => p.column === 'secondary'));
   const columns = $derived(two ? (['primary', 'secondary'] as const) : (['primary'] as const));
   const annotations = $derived(Object.values(doc.entities).filter((e) => e.type === 'annotation'));
-  // PDF zoom lives in an app-styled menu: the native select's platform dropdown
-  // reads as a different application.
-  const zoomOptions = [
-    { value: 0.75, label: '75%' },
-    { value: 1, label: 'Fit width' },
-    { value: 1.25, label: '125%' },
-    { value: 1.5, label: '150%' },
-  ];
-  const zoomLabel = (zoom: number) =>
-    zoomOptions.find((option) => option.value === zoom)?.label ?? `${Math.round(zoom * 100)}%`;
+  // The PDF view lives in an app-styled menu: the native select's platform
+  // dropdown reads as a different application. Zoom itself is a gesture now
+  // (pinch or wheel, pan by drag), so the header only offers the way back.
+  const viewOptions = [
+    { value: 'all', label: 'All pages' },
+    { value: 'page', label: 'Per page' },
+  ] as const;
+  const viewLabel = (mode: Pane['mode']) =>
+    viewOptions.find((option) => option.value === (mode ?? 'all'))?.label ?? 'All pages';
+  const viewZoom = (pane: Pane) => Math.round((pane.zoom ?? 1) * 100);
+  // A pinch back out lands on 1.0000000000000002: the chip follows a real
+  // change of view, not float noise.
+  const viewIsZoomed = (pane: Pane) =>
+    Math.abs((pane.zoom ?? 1) - 1) > 0.005 || Boolean(pane.pan && (pane.pan.x || pane.pan.y));
   let container: HTMLDivElement;
   let reduced = $state(false);
   onMount(() => {
@@ -219,12 +223,18 @@
                     >{/if}<span title={e.title}>{e.title}</span></span
                 >
                 <div class="item-actions">
-                  {#if e.type === 'pdf'}<DropdownMenu.Root
+                  {#if e.type === 'pdf'}{#if viewIsZoomed(pane)}<button
+                        class="zoom-button"
+                        title="Reset zoom to fit"
+                        aria-label={`Zoom ${viewZoom(pane)}%. Reset to fit`}
+                        onclick={() => onview(e.id, { zoom: 1, pan: { x: 0, y: 0 } })}
+                        >{viewZoom(pane)}%</button
+                      >{/if}<DropdownMenu.Root
                       ><DropdownMenu.Trigger
                         class="zoom-button"
-                        title="PDF zoom"
-                        aria-label={`PDF zoom: ${zoomLabel(pane.zoom)}`}
-                        ><span>{zoomLabel(pane.zoom)}</span><ChevronDown
+                        title="PDF view"
+                        aria-label={`PDF view: ${viewLabel(pane.mode)}`}
+                        ><span>{viewLabel(pane.mode)}</span><ChevronDown
                           size={13}
                         /></DropdownMenu.Trigger
                       ><DropdownMenu.Portal
@@ -232,10 +242,10 @@
                           class="file-menu zoom-menu"
                           sideOffset={6}
                           align="end"
-                          >{#each zoomOptions as option}<DropdownMenu.Item
+                          >{#each viewOptions as option}<DropdownMenu.Item
                               class="file-menu-item"
-                              onSelect={() => onview(e.id, { zoom: option.value })}
-                              ><span>{option.label}</span>{#if pane.zoom === option.value}<Check
+                              onSelect={() => onview(e.id, { mode: option.value })}
+                              ><span>{option.label}</span>{#if (pane.mode ?? 'all') === option.value}<Check
                                   size={13}
                                 />{/if}</DropdownMenu.Item
                             >{/each}</DropdownMenu.Content
